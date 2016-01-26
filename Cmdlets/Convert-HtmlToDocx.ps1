@@ -34,7 +34,7 @@ function Convert-HtmlToDocx {
      Use this parameter to specify the user defined CSS/custom Css for the resultant document
     .PARAMETER OpenNow
      Use this parameter to open the document immediately.
-    .PARAMETER OpenNow
+    .PARAMETER CreateAnnotation
      Use this parameter to create annotation file
     .EXAMPLE
      convert-htmltodocx Resume.html -OutputPath demo.docx
