@@ -84,6 +84,7 @@ if (Get-Module Open-XML-PowerTools) { return }
 . "$PSScriptRoot\Cmdlets\New-WmlDocument.ps1"
 . "$PSScriptRoot\Cmdlets\DocxLib.ps1"
 . "$PSScriptRoot\Cmdlets\Get-DocxMetrics.ps1"
+. "$PSScriptRoot\Cmdlets\Convert-HtmlToDocx.ps1"
 
 # XLSX
 
@@ -109,6 +110,7 @@ Export-ModuleMember `
         'ConvertFrom-FlatOpc',
         'Convert-DocxToHtml',
         'Format-Xml',
+        'Convert-HtmlToDocx',
 
         # All Open XML
         'Get-OpenXmlValidationErrors',

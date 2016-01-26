@@ -40,7 +40,7 @@ $sources = @(
     "$PSScriptRoot\OpenXmlPowerTools\GetListItemText_sv_SE.cs",
     "$PSScriptRoot\OpenXmlPowerTools\GetListItemText_tr_TR.cs",
     "$PSScriptRoot\OpenXmlPowerTools\GetListItemText_zh_CN.cs",
-    "$PSScriptRoot\OpenXmlPowerTools\HtmlConverter.cs",
+    "$PSScriptRoot\OpenXmlPowerTools\WmlToHtmlConverter.cs",
     "$PSScriptRoot\OpenXmlPowerTools\ListItemRetriever.cs",
     "$PSScriptRoot\OpenXmlPowerTools\MarkupSimplifier.cs",
     "$PSScriptRoot\OpenXmlPowerTools\MetricsGetter.cs",
@@ -63,6 +63,12 @@ $sources = @(
     "$PSScriptRoot\OpenXmlPowerTools\SpreadsheetDocumentManager.cs",
     "$PSScriptRoot\OpenXmlPowerTools\OutXlsxCmdlet.cs",
     "$PSScriptRoot\OpenXmlPowerTools\ScalarTypes.cs"
+    "$PSScriptRoot\OpenXmlPowerTools\HtmlToWmlConverterCore.cs"
+    "$PSScriptRoot\OpenXmlPowerTools\HtmlToWmlCssApplier.cs"
+    "$PSScriptRoot\OpenXmlPowerTools\HtmlToWmlCssParser.cs"
+    "$PSScriptRoot\OpenXmlPowerTools\HtmlToWmlConverter.cs"
+    
+    
 )
 
 Add-Type -Path "$PSScriptRoot\..\Open-Xml-Sdk\DocumentFormat.OpenXml\bin\debug\DocumentFormat.OpenXml.dll"

@@ -1,14 +1,19 @@
 ﻿/***************************************************************************
- 
-Copyright (c) Microsoft Corporation 2014.
- 
+
+Copyright (c) Microsoft Corporation 2012-2015.
+
 This code is licensed using the Microsoft Public License (Ms-PL).  The text of the license can be found here:
- 
+
 http://www.microsoft.com/resources/sharedsource/licensingbasics/publiclicense.mspx
- 
+
 Published at http://OpenXmlDeveloper.org
 Resource Center and Documentation: http://openxmldeveloper.org/wiki/w/wiki/powertools-for-open-xml.aspx
- 
+
+Developer: Eric White
+Blog: http://www.ericwhite.com
+Twitter: @EricWhiteDev
+Email: eric@ericwhite.com
+
 ***************************************************************************/
 
 using System;
@@ -25,9 +30,12 @@ using OpenXmlPowerTools;
 using System.Text;
 using DocumentFormat.OpenXml;
 using System.Drawing.Imaging;
+using OpenXmlPowerTools.HtmlToWml;
 
 namespace OpenXmlPowerTools
 {
+
+
     public static class AddDocxTextHelper
     {
         public static WmlDocument AppendParagraphToDocument(
@@ -343,6 +351,223 @@ AAsACwDBAgAAbCwAAAAA";
         }
     }
 
+    public static class HtmlToDocxConverterHelper
+    {
+        static string defaultCss =
+               @"html, address,
+        blockquote,
+        body, dd, div,
+        dl, dt, fieldset, form,
+        frame, frameset,
+        h1, h2, h3, h4,
+        h5, h6, noframes,
+        ol, p, ul, center,
+        dir, hr, menu, pre { display: block; unicode-bidi: embed }
+        li { display: list-item }
+        head { display: none }
+        table { display: table }
+        tr { display: table-row }
+        thead { display: table-header-group }
+        tbody { display: table-row-group }
+        tfoot { display: table-footer-group }
+        col { display: table-column }
+        colgroup { display: table-column-group }
+        td, th { display: table-cell }
+        caption { display: table-caption }
+        th { font-weight: bolder; text-align: center }
+        caption { text-align: center }
+        body { margin: auto; }
+        h1 { font-size: 2em; margin: auto; }
+        h2 { font-size: 1.5em; margin: auto; }
+        h3 { font-size: 1.17em; margin: auto; }
+        h4, p,
+        blockquote, ul,
+        fieldset, form,
+        ol, dl, dir,
+        menu { margin: auto }
+        a { color: blue; }
+        h5 { font-size: .83em; margin: auto }
+        h6 { font-size: .75em; margin: auto }
+        h1, h2, h3, h4,
+        h5, h6, b,
+        strong { font-weight: bolder }
+        blockquote { margin-left: 40px; margin-right: 40px }
+        i, cite, em,
+        var, address { font-style: italic }
+        pre, tt, code,
+        kbd, samp { font-family: monospace }
+        pre { white-space: pre }
+        button, textarea,
+        input, select { display: inline-block }
+        big { font-size: 1.17em }
+        small, sub, sup { font-size: .83em }
+        sub { vertical-align: sub }
+        sup { vertical-align: super }
+        table { border-spacing: 2px; }
+        thead, tbody,
+        tfoot { vertical-align: middle }
+        td, th, tr { vertical-align: inherit }
+        s, strike, del { text-decoration: line-through }
+        hr { border: 1px inset }
+        ol, ul, dir,
+        menu, dd { margin-left: 40px }
+        ol { list-style-type: decimal }
+        ol ul, ul ol,
+        ul ul, ol ol { margin-top: 0; margin-bottom: 0 }
+        u, ins { text-decoration: underline }
+        br:before { content: ""\A""; white-space: pre-line }
+        center { text-align: center }
+        :link, :visited { text-decoration: underline }
+        :focus { outline: thin dotted invert }
+        /* Begin bidirectionality settings (do not change) */
+        BDO[DIR=""ltr""] { direction: ltr; unicode-bidi: bidi-override }
+        BDO[DIR=""rtl""] { direction: rtl; unicode-bidi: bidi-override }
+        *[DIR=""ltr""] { direction: ltr; unicode-bidi: embed }
+        *[DIR=""rtl""] { direction: rtl; unicode-bidi: embed }";
+
+        
+
+        public static void ConvertHtmlToDocx(string file, string output, bool emptyDocument, string userCss, bool openNow, bool isAnnotatedHtml)
+        {
+            var sourceHtmlFi = new FileInfo(file);
+            XElement html = HtmlToWmlReadAsXElement.ReadAsXElement(sourceHtmlFi);
+            var destFileName = default(FileInfo);
+            var annotatedHtmlFi = default(FileInfo);
+
+            string fileExt = string.Empty;
+
+            var fileName = output.Substring(output.LastIndexOf("\\") + 1);
+            var directoryName = output.Substring(0, output.LastIndexOf("\\") + 1);
+
+            if (!string.IsNullOrEmpty(userCss))
+            {
+                if (File.Exists(userCss))
+                {
+                    var cssPathExt = Path.GetExtension(userCss);
+                    if (!cssPathExt.ToLower().Equals(".css"))
+                    {
+                        throw new OpenXmlPowerToolsException("Please specify CSS path!");
+                    }
+                    userCss = File.ReadAllText(userCss);
+                }
+                else
+                {
+                    throw new OpenXmlPowerToolsException("File not exists!");
+                }                
+            }
+
+            if (!string.IsNullOrEmpty(directoryName))
+            {
+                DirectoryInfo di = new DirectoryInfo(directoryName);
+                if (!di.Exists)
+                {
+                    DirectoryInfo directory = Directory.CreateDirectory(directoryName);
+                }
+            }
+
+            if (fileName.Equals(string.Empty) && !emptyDocument)
+            {
+                emptyDocument = false;
+                openNow = false;
+            }
+
+            if (isAnnotatedHtml)
+            {
+                annotatedHtmlFi = new FileInfo(Path.Combine(directoryName, sourceHtmlFi.Name.Replace(".html", ".txt")));
+            }
+
+            if (fileName.Equals(string.Empty) && !emptyDocument)
+            {
+                destFileName = new FileInfo(Path.Combine(directoryName, sourceHtmlFi.Name.Replace(".html", ".docx")));
+            }
+            else
+            {
+                fileExt = Path.GetExtension(output);
+                if (!string.IsNullOrEmpty(fileExt))
+                {
+                    if (!fileExt.ToLower().Equals(".docx"))
+                    {
+                        throw new OpenXmlPowerToolsException("Invalid Extenstion!");
+                    }
+                    destFileName = new FileInfo(Path.Combine(directoryName, fileName));
+                }
+                if (emptyDocument && string.IsNullOrEmpty(fileExt))
+                {
+                    destFileName = new FileInfo("EmptyDocument.docx");
+                }
+            }
+
+            string authorCss = HtmlToWmlConverter.CleanUpCss((string)html.Descendants().FirstOrDefault(d => d.Name.LocalName.ToLower() == "style"));
+            HtmlToWmlConverterSettings settings = HtmlToWmlConverter.GetDefaultSettings();
+            settings.BaseUriForImages = sourceHtmlFi.DirectoryName;
+
+            WmlDocument doc = HtmlToWmlConverterCore.ConvertHtmlToWml(defaultCss, authorCss, userCss, html, settings, null, isAnnotatedHtml ? annotatedHtmlFi.FullName : null);
+            doc.SaveAs(destFileName.FullName);
+
+            if (openNow && !string.IsNullOrEmpty(fileExt) || emptyDocument)
+            {
+                FileInfo docFile = new FileInfo(destFileName.FullName);
+                if (docFile.Exists)
+                    System.Diagnostics.Process.Start(destFileName.FullName);
+            }
+        }
+    }
+
+    public class HtmlToWmlReadAsXElement
+    {
+        public static XElement ReadAsXElement(FileInfo sourceHtmlFi)
+        {
+            string htmlString = File.ReadAllText(sourceHtmlFi.FullName);
+            XElement html = null;
+            try
+            {
+                html = XElement.Parse(htmlString);
+            }
+#if USE_HTMLAGILITYPACK
+            catch (XmlException)
+            {
+                HtmlDocument hdoc = new HtmlDocument();
+                hdoc.Load(sourceHtmlFi.FullName, Encoding.Default);
+                hdoc.OptionOutputAsXml = true;
+                hdoc.Save(sourceHtmlFi.FullName, Encoding.Default);
+                StringBuilder sb = new StringBuilder(File.ReadAllText(sourceHtmlFi.FullName, Encoding.Default));
+                sb.Replace("&amp;", "&");
+                sb.Replace("&nbsp;", "\xA0");
+                sb.Replace("&quot;", "\"");
+                sb.Replace("&lt;", "~lt;");
+                sb.Replace("&gt;", "~gt;");
+                sb.Replace("&#", "~#");
+                sb.Replace("&", "&amp;");
+                sb.Replace("~lt;", "&lt;");
+                sb.Replace("~gt;", "&gt;");
+                sb.Replace("~#", "&#");
+                File.WriteAllText(sourceHtmlFi.FullName, sb.ToString(), Encoding.Default);
+                html = XElement.Parse(sb.ToString());
+            }
+#else
+            catch (XmlException e)
+            {
+                throw e;
+            }
+#endif
+            // HtmlToWmlConverter expects the HTML elements to be in no namespace, so convert all elements to no namespace.
+            html = (XElement)ConvertToNoNamespace(html);
+            return html;
+        }
+
+        private static object ConvertToNoNamespace(XNode node)
+        {
+            XElement element = node as XElement;
+            if (element != null)
+            {
+                return new XElement(element.Name.LocalName,
+                    element.Attributes().Where(a => !a.IsNamespaceDeclaration),
+                    element.Nodes().Select(n => ConvertToNoNamespace(n)));
+            }
+            return node;
+        }
+    }
+
     public class HtmlConverterHelper
     {
         public static void ConvertToHtml(string file, string outputDirectory)
@@ -370,7 +595,7 @@ AAsACwDBAgAAbCwAAAAA";
                     if (pageTitle == null)
                         pageTitle = fi.FullName;
 
-                    HtmlConverterSettings settings = new HtmlConverterSettings()
+                    WmlToHtmlConverterSettings settings = new WmlToHtmlConverterSettings()
                     {
                         PageTitle = pageTitle,
                         FabricateCssClasses = true,
@@ -432,7 +657,7 @@ AAsACwDBAgAAbCwAAAAA";
                             return img;
                         }
                     };
-                    XElement html = HtmlConverter.ConvertToHtml(wDoc, settings);
+                    XElement html = WmlToHtmlConverter.ConvertToHtml(wDoc, settings);
 
                     // Note: the xhtml returned by ConvertToHtmlTransform contains objects of type
                     // XEntity.  PtOpenXmlUtil.cs define the XEntity class.  See
@@ -568,39 +793,39 @@ AAsACwDBAgAAbCwAAAAA";
     {
         public string FileName;
 
-	    public int ActiveX;
-	    public int AltChunk;
-	    public int AsciiCharCount;
-	    public int AsciiRunCount;
-	    public int AverageParagraphLength;
-	    public int ComplexField;
-	    public int ContentControlCount;
-	    public XmlDocument ContentControls;
-	    public int CSCharCount;
-	    public int CSRunCount;
-	    public bool DocumentProtection;
-	    public int EastAsiaCharCount;
-	    public int EastAsiaRunCount;
-	    public int ElementCount;
-	    public bool EmbeddedXlsx;
-	    public int HAnsiCharCount;
-	    public int HAnsiRunCount;
-	    public int Hyperlink;
-	    public bool InvalidSaveThroughXslt;
-	    public string Languages;
-	    public int LegacyFrame;
-	    public int MultiFontRun;
-	    public string NumberingFormatList;
-	    public int ReferenceToNullImage;
-	    public bool RevisionTracking;
-	    public int RunCount;
-	    public int SimpleField;
-	    public XmlDocument StyleHierarchy;
-	    public int SubDocument;
-	    public int Table;
-	    public int TextBox;
-	    public bool TrackRevisionsEnabled;
-	    public bool Valid;
+        public int ActiveX;
+        public int AltChunk;
+        public int AsciiCharCount;
+        public int AsciiRunCount;
+        public int AverageParagraphLength;
+        public int ComplexField;
+        public int ContentControlCount;
+        public XmlDocument ContentControls;
+        public int CSCharCount;
+        public int CSRunCount;
+        public bool DocumentProtection;
+        public int EastAsiaCharCount;
+        public int EastAsiaRunCount;
+        public int ElementCount;
+        public bool EmbeddedXlsx;
+        public int HAnsiCharCount;
+        public int HAnsiRunCount;
+        public int Hyperlink;
+        public bool InvalidSaveThroughXslt;
+        public string Languages;
+        public int LegacyFrame;
+        public int MultiFontRun;
+        public string NumberingFormatList;
+        public int ReferenceToNullImage;
+        public bool RevisionTracking;
+        public int RunCount;
+        public int SimpleField;
+        public XmlDocument StyleHierarchy;
+        public int SubDocument;
+        public int Table;
+        public int TextBox;
+        public bool TrackRevisionsEnabled;
+        public bool Valid;
         public int ZeroLengthText;
     }
 
@@ -616,40 +841,40 @@ AAsACwDBAgAAbCwAAAAA";
             DocxMetrics metrics = new DocxMetrics();
             metrics.FileName = wmlDoc.FileName;
 
-            metrics.StyleHierarchy         = GetXmlDocumentForMetrics(metricsXml, H.StyleHierarchy);
-            metrics.ContentControls        = GetXmlDocumentForMetrics(metricsXml, H.Parts);
-            metrics.TextBox                = GetIntForMetrics(metricsXml, H.TextBox);
-            metrics.ContentControlCount    = GetIntForMetrics(metricsXml, H.ContentControl);
-            metrics.ComplexField           = GetIntForMetrics(metricsXml, H.ComplexField);
-            metrics.SimpleField            = GetIntForMetrics(metricsXml, H.SimpleField);
-            metrics.AltChunk               = GetIntForMetrics(metricsXml, H.AltChunk);
-            metrics.Table                  = GetIntForMetrics(metricsXml, H.Table);
-            metrics.Hyperlink              = GetIntForMetrics(metricsXml, H.Hyperlink);
-            metrics.LegacyFrame            = GetIntForMetrics(metricsXml, H.LegacyFrame);
-            metrics.ActiveX                = GetIntForMetrics(metricsXml, H.ActiveX);
-            metrics.SubDocument            = GetIntForMetrics(metricsXml, H.SubDocument);
-            metrics.ReferenceToNullImage   = GetIntForMetrics(metricsXml, H.ReferenceToNullImage);
-            metrics.ElementCount           = GetIntForMetrics(metricsXml, H.ElementCount);
+            metrics.StyleHierarchy = GetXmlDocumentForMetrics(metricsXml, H.StyleHierarchy);
+            metrics.ContentControls = GetXmlDocumentForMetrics(metricsXml, H.Parts);
+            metrics.TextBox = GetIntForMetrics(metricsXml, H.TextBox);
+            metrics.ContentControlCount = GetIntForMetrics(metricsXml, H.ContentControl);
+            metrics.ComplexField = GetIntForMetrics(metricsXml, H.ComplexField);
+            metrics.SimpleField = GetIntForMetrics(metricsXml, H.SimpleField);
+            metrics.AltChunk = GetIntForMetrics(metricsXml, H.AltChunk);
+            metrics.Table = GetIntForMetrics(metricsXml, H.Table);
+            metrics.Hyperlink = GetIntForMetrics(metricsXml, H.Hyperlink);
+            metrics.LegacyFrame = GetIntForMetrics(metricsXml, H.LegacyFrame);
+            metrics.ActiveX = GetIntForMetrics(metricsXml, H.ActiveX);
+            metrics.SubDocument = GetIntForMetrics(metricsXml, H.SubDocument);
+            metrics.ReferenceToNullImage = GetIntForMetrics(metricsXml, H.ReferenceToNullImage);
+            metrics.ElementCount = GetIntForMetrics(metricsXml, H.ElementCount);
             metrics.AverageParagraphLength = GetIntForMetrics(metricsXml, H.AverageParagraphLength);
-            metrics.RunCount               = GetIntForMetrics(metricsXml, H.RunCount);
-            metrics.ZeroLengthText         = GetIntForMetrics(metricsXml, H.ZeroLengthText);
-            metrics.MultiFontRun           = GetIntForMetrics(metricsXml, H.MultiFontRun);
-            metrics.AsciiCharCount         = GetIntForMetrics(metricsXml, H.AsciiCharCount);
-            metrics.CSCharCount            = GetIntForMetrics(metricsXml, H.CSCharCount);
-            metrics.EastAsiaCharCount      = GetIntForMetrics(metricsXml, H.EastAsiaCharCount);
-            metrics.HAnsiCharCount         = GetIntForMetrics(metricsXml, H.HAnsiCharCount);
-            metrics.AsciiRunCount          = GetIntForMetrics(metricsXml, H.AsciiRunCount);
-            metrics.CSRunCount             = GetIntForMetrics(metricsXml, H.CSRunCount);
-            metrics.EastAsiaRunCount       = GetIntForMetrics(metricsXml, H.EastAsiaRunCount);
-            metrics.HAnsiRunCount          = GetIntForMetrics(metricsXml, H.HAnsiRunCount);
-            metrics.RevisionTracking       = GetBoolForMetrics(metricsXml, H.RevisionTracking);
-            metrics.EmbeddedXlsx           = GetBoolForMetrics(metricsXml, H.EmbeddedXlsx);
+            metrics.RunCount = GetIntForMetrics(metricsXml, H.RunCount);
+            metrics.ZeroLengthText = GetIntForMetrics(metricsXml, H.ZeroLengthText);
+            metrics.MultiFontRun = GetIntForMetrics(metricsXml, H.MultiFontRun);
+            metrics.AsciiCharCount = GetIntForMetrics(metricsXml, H.AsciiCharCount);
+            metrics.CSCharCount = GetIntForMetrics(metricsXml, H.CSCharCount);
+            metrics.EastAsiaCharCount = GetIntForMetrics(metricsXml, H.EastAsiaCharCount);
+            metrics.HAnsiCharCount = GetIntForMetrics(metricsXml, H.HAnsiCharCount);
+            metrics.AsciiRunCount = GetIntForMetrics(metricsXml, H.AsciiRunCount);
+            metrics.CSRunCount = GetIntForMetrics(metricsXml, H.CSRunCount);
+            metrics.EastAsiaRunCount = GetIntForMetrics(metricsXml, H.EastAsiaRunCount);
+            metrics.HAnsiRunCount = GetIntForMetrics(metricsXml, H.HAnsiRunCount);
+            metrics.RevisionTracking = GetBoolForMetrics(metricsXml, H.RevisionTracking);
+            metrics.EmbeddedXlsx = GetBoolForMetrics(metricsXml, H.EmbeddedXlsx);
             metrics.InvalidSaveThroughXslt = GetBoolForMetrics(metricsXml, H.InvalidSaveThroughXslt);
-            metrics.TrackRevisionsEnabled  = GetBoolForMetrics(metricsXml, H.TrackRevisionsEnabled);
-            metrics.DocumentProtection     = GetBoolForMetrics(metricsXml, H.DocumentProtection);
-            metrics.Valid                  = GetBoolForMetrics(metricsXml, H.Valid);
-            metrics.Languages              = GetStringForMetrics(metricsXml, H.Languages);
-            metrics.NumberingFormatList    = GetStringForMetrics(metricsXml, H.NumberingFormatList);
+            metrics.TrackRevisionsEnabled = GetBoolForMetrics(metricsXml, H.TrackRevisionsEnabled);
+            metrics.DocumentProtection = GetBoolForMetrics(metricsXml, H.DocumentProtection);
+            metrics.Valid = GetBoolForMetrics(metricsXml, H.Valid);
+            metrics.Languages = GetStringForMetrics(metricsXml, H.Languages);
+            metrics.NumberingFormatList = GetStringForMetrics(metricsXml, H.NumberingFormatList);
 
             return metrics;
         }
