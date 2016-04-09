@@ -55,6 +55,8 @@ using System.Text.RegularExpressions;
 using Word = Microsoft.Office.Interop.Word;
 #endif
 
+#if !ELIDE_XUNIT_TESTS
+
 namespace OxPt
 {
     public class HwTests
@@ -527,3 +529,5 @@ BDO[DIR=""rtl""] { direction: rtl; unicode-bidi: bidi-override }
         static string userCss = @"";
     }
 }
+
+#endif
