@@ -36,7 +36,18 @@ namespace OxPt
         [Theory]
         [InlineData("SR001-Plain.docx", "SR001-Plain-Mod.docx")]
         [InlineData("WC001-Digits.docx", "WC001-Digits-Mod.docx")]
-
+        [InlineData("WC002-Unmodified.docx", "WC002-DiffInMiddle.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DiffAtBeginning.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DeleteAtBeginning.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-InsertAtBeginning.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-InsertAtEnd.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DeleteAtEnd.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DeleteInMiddle.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-InsertInMiddle.docx")]
+        [InlineData("WC002-DeleteInMiddle.docx", "WC002-Unmodified.docx")]
+        [InlineData("WC003-ITU-Document-Delete-Me.docx", "WC003-ITU-Document-Delete-Me-Mod.docx")]
+        [InlineData("WC004-Large.docx", "WC004-Large-Mod.docx")]
+         
         public void WC001_Compare(string name1, string name2)
         {
             FileInfo source1Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name1));

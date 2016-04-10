@@ -69,11 +69,201 @@ namespace OpenXmlPowerTools
         {
             var cu1 = GetComparisonUnitList(sra1, settings);
             var cu2 = GetComparisonUnitList(sra2, settings);
+            var correlatedSequence = Lcs(cu1, cu2);
+
+            var sb = new StringBuilder();
+            foreach (var item in correlatedSequence)
+                sb.Append(item.ToString());
+            var s = sb.ToString();
+            Console.WriteLine(s);
 
             return null;
         }
 
-        private static List<ComparisonUnit> GetComparisonUnitList(SplitRunsAnnotation splitRunsAnnotation, WmlComparerSettings settings)
+        private static List<CorrelatedSequence> Lcs(ComparisonUnit[] cu1, ComparisonUnit[] cu2)
+        {
+            // set up initial state - one CorrelatedSequence, UnKnown, contents == entire sequences (both)
+            CorrelatedSequence cs = new CorrelatedSequence()
+            {
+                CorrelationStatus = OpenXmlPowerTools.CorrelationStatus.Unknown,
+                ComparisonUnitArray1 = cu1,
+                ComparisonUnitArray2 = cu2,
+            };
+            List<CorrelatedSequence> csList = new List<CorrelatedSequence>()
+            {
+                cs
+            };
+
+            var sb = new StringBuilder();
+            foreach (var item in csList)
+                sb.Append(item.ToString());
+            var s = sb.ToString();
+            Console.WriteLine(s);
+
+
+            while (true)
+            {
+                var unknown = csList
+                    .FirstOrDefault(z => z.CorrelationStatus == CorrelationStatus.Unknown);
+                if (unknown == null)
+                    break;
+
+
+
+                // do LCS on paragraphs here
+
+
+
+
+                List<CorrelatedSequence> newSequence = FindLongestCommonSequence(unknown);
+                var indexOfUnknown = csList.IndexOf(unknown);
+                csList.Remove(unknown);
+
+                newSequence.Reverse();
+                foreach (var item in newSequence)
+                    csList.Insert(indexOfUnknown, item);
+            }
+
+            return csList;
+        }
+
+        private static List<CorrelatedSequence> FindLongestCommonSequence(CorrelatedSequence unknown)
+        {
+            var cul1 = unknown.ComparisonUnitArray1;
+            var cul2 = unknown.ComparisonUnitArray2;
+            int currentLongestCommonSequenceLength = 0;
+            int currentI1 = -1;
+            int currentI2 = -1;
+            for (int i1 = 0; i1 < cul1.Length; i1++)
+            {
+                for (int i2 = 0; i2 < cul2.Length; i2++)
+                {
+                    var thisSequenceLength = 0;
+                    var thisI1 = i1;
+                    var thisI2 = i2;
+                    while (true)
+                    {
+                        if (cul1[thisI1] == cul2[thisI2])
+                        {
+                            thisI1++;
+                            thisI2++;
+                            thisSequenceLength++;
+                            if (thisI1 == cul1.Length || thisI2 == cul2.Length)
+                            {
+                                if (thisSequenceLength > currentLongestCommonSequenceLength)
+                                {
+                                    currentLongestCommonSequenceLength = thisSequenceLength;
+                                    currentI1 = i1;
+                                    currentI2 = i2;
+                                }
+                                break;
+                            }
+                            continue;
+                        }
+                        else
+                        {
+                            if (thisSequenceLength > currentLongestCommonSequenceLength)
+                            {
+                                currentLongestCommonSequenceLength = thisSequenceLength;
+                                currentI1 = i1;
+                                currentI2 = i2;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            var newListOfCorrelatedSequence = new List<CorrelatedSequence>();
+            if (currentI1 == -1 && currentI2 == -1)
+            {
+                var deletedCorrelatedSequence = new CorrelatedSequence();
+                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                deletedCorrelatedSequence.ComparisonUnitArray1 = cul1;
+                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+
+                var insertedCorrelatedSequence = new CorrelatedSequence();
+                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                insertedCorrelatedSequence.ComparisonUnitArray2 = cul2;
+                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+
+                return newListOfCorrelatedSequence;
+            }
+
+            if (currentI1 > 0 && currentI2 == 0)
+            {
+                var deletedCorrelatedSequence = new CorrelatedSequence();
+                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                deletedCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentI1).ToArray();
+                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+            }
+            else if (currentI1 == 0 && currentI2 > 0)
+            {
+                var insertedCorrelatedSequence = new CorrelatedSequence();
+                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                insertedCorrelatedSequence.ComparisonUnitArray2 = cul2.Take(currentI2).ToArray();
+                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+            }
+            else if (currentI1 > 0 && currentI2 > 0)
+            {
+                var unknownCorrelatedSequence = new CorrelatedSequence();
+                unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
+                unknownCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentI1).ToArray();
+                unknownCorrelatedSequence.ComparisonUnitArray2 = cul2.Take(currentI2).ToArray();
+                newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
+            }
+            else if (currentI1 == 0 && currentI2 == 0)
+            {
+                var equalCorrelatedSequence = new CorrelatedSequence();
+                equalCorrelatedSequence.CorrelationStatus = CorrelationStatus.Equal;
+                equalCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(currentI1).Take(currentLongestCommonSequenceLength).ToArray();
+                equalCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(currentI2).Take(currentLongestCommonSequenceLength).ToArray();
+                newListOfCorrelatedSequence.Add(equalCorrelatedSequence);
+            }
+
+            int endI1 = currentI1 + currentLongestCommonSequenceLength;
+            int endI2 = currentI2 + currentLongestCommonSequenceLength;
+
+            if (endI1 < cul1.Length && endI2 == cul2.Length)
+            {
+                var deletedCorrelatedSequence = new CorrelatedSequence();
+                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                deletedCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(endI1).ToArray();
+                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+            }
+            else if (endI1 == cul1.Length && endI2 < cul2.Length)
+            {
+                var insertedCorrelatedSequence = new CorrelatedSequence();
+                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                insertedCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(endI2).ToArray();
+                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+            }
+            else if (endI1 < cul1.Length && endI2 < cul2.Length)
+            {
+                var unknownCorrelatedSequence = new CorrelatedSequence();
+                unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
+                unknownCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(endI1).ToArray();
+                unknownCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(endI2).ToArray();
+                newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
+            }
+            else if (endI1 == cul1.Length && endI2 == cul2.Length)
+            {
+                var equalCorrelatedSequence = new CorrelatedSequence();
+                equalCorrelatedSequence.CorrelationStatus = CorrelationStatus.Equal;
+                equalCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(currentI1).ToArray();
+                equalCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(currentI2).ToArray();
+                newListOfCorrelatedSequence.Add(equalCorrelatedSequence);
+            }
+            return newListOfCorrelatedSequence;
+        }
+
+        private static ComparisonUnit[] GetComparisonUnitList(SplitRunsAnnotation splitRunsAnnotation, WmlComparerSettings settings)
         {
             var splitRuns = splitRunsAnnotation.SplitRuns;
             var groupingKey = splitRuns
@@ -171,9 +361,9 @@ namespace OpenXmlPowerTools
             //var sbs = sb.ToString();
             //Console.WriteLine(sbs);
 
-            List<ComparisonUnit> cul = groupedByWords
+            ComparisonUnit[] cul = groupedByWords
                 .Select(g => new ComparisonUnit(g.Select(gc => gc.SplitRunMember)))
-                .ToList();
+                .ToArray();
 
             //var sb = new StringBuilder();
             //foreach (var group in cul)
@@ -191,14 +381,20 @@ namespace OpenXmlPowerTools
         }
     }
 
-    // tomorrow first thing - write xunits for ComparisonUnit equals
-
     internal class ComparisonUnit : IEquatable<ComparisonUnit>
     {
         public List<SplitRun> Contents;
         public ComparisonUnit(IEnumerable<SplitRun> splitRuns)
         {
             Contents = splitRuns.ToList();
+        }
+
+        public string ToString(int indent)
+        {
+            var sb = new StringBuilder();
+            foreach (var splitRun in Contents)
+                sb.Append(splitRun.ToString(indent) + Environment.NewLine);
+            return sb.ToString();
         }
 
         // TODO need to add all other elements that we should discard.
@@ -317,6 +513,47 @@ namespace OpenXmlPowerTools
                 return !Object.Equals(comparisonUnit1, comparisonUnit2);
 
             return !(comparisonUnit1.Equals(comparisonUnit2));
+        }
+    }
+
+    enum CorrelationStatus
+    {
+        Unknown,
+        Inserted,
+        Deleted,
+        Equal,
+    }
+
+    class CorrelatedSequence
+    {
+        public CorrelationStatus CorrelationStatus;
+        // if ComparisonUnitList1 == null and ComparisonUnitList2 contains sequence, then inserted content.
+        // if ComparisonUnitList2 == null and ComparisonUnitList1 contains sequence, then deleted content.
+        // if ComparisonUnitList2 contains sequence and ComparisonUnitList1 contains sequence, then either is Unknown or Equal.
+        public ComparisonUnit[] ComparisonUnitArray1;
+        public ComparisonUnit[] ComparisonUnitArray2;
+
+        public override string ToString()
+        {
+            var sb = new StringBuilder();
+            var indentString = "  ";
+            var indentString4 = "    ";
+            sb.Append("CorrelatedSequence =====" + Environment.NewLine);
+            sb.Append(indentString + "CorrelatedItem =====" + Environment.NewLine);
+            sb.Append(indentString4 + "CorrelationStatus: " + CorrelationStatus.ToString() + Environment.NewLine);
+            if (ComparisonUnitArray1 != null)
+            {
+                sb.Append(indentString4 + "ComparisonUnitList1 =====" + Environment.NewLine);
+                foreach (var item in ComparisonUnitArray1)
+                    sb.Append(item.ToString(6) + Environment.NewLine);
+            }
+            if (ComparisonUnitArray2 != null)
+            {
+                sb.Append(indentString + "ComparisonUnitList2 =====" + Environment.NewLine);
+                foreach (var item in ComparisonUnitArray2)
+                    sb.Append(item.ToString(6) + Environment.NewLine);
+            }
+            return sb.ToString();
         }
     }
 }
