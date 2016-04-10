@@ -170,7 +170,7 @@ namespace OpenXmlPowerTools
 
             var splitRuns = new List<SplitRun>();
             AnnotateWithSplitRunsRecurse(root, splitRuns);
-            splitRunsAnnotation.SplitRuns = splitRuns;
+            splitRunsAnnotation.SplitRuns = splitRuns.ToArray();
             
             part.AddAnnotation(splitRunsAnnotation);
         }
@@ -388,7 +388,7 @@ namespace OpenXmlPowerTools
 
     internal class SplitRunsAnnotation
     {
-        public List<SplitRun> SplitRuns;
+        public SplitRun[] SplitRuns;
 
         public string DumpSplitRunsAnnotation(int indent)
         {

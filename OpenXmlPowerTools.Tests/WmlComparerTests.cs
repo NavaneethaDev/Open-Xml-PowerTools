@@ -35,10 +35,7 @@ namespace OxPt
     {
         [Theory]
         [InlineData("SR001-Plain.docx", "SR001-Plain-Mod.docx")]
-        //[InlineData("SR002-Bookmark.docx")]
-        //[InlineData("SR003-Numbered-List.docx")]
-        //[InlineData("SR004-TwoParas.docx")]
-        //[InlineData("SR005-LongDocument-Delete-Me.docx")]
+        [InlineData("WC001-Digits.docx", "WC001-Digits-Mod.docx")]
 
         public void WC001_Compare(string name1, string name2)
         {
@@ -55,7 +52,6 @@ namespace OxPt
             WmlDocument source1Wml = new WmlDocument(source1CopiedToDestDocx.FullName);
             WmlDocument source2Wml = new WmlDocument(source2CopiedToDestDocx.FullName);
             WmlComparerSettings settings = new WmlComparerSettings();
-            settings.WordSeparators = new[] { ' ', ',' }; // todo need to fix this for complete list
             WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
             comparedWml.SaveAs(docxWithRevisionsFi.FullName);
         }
