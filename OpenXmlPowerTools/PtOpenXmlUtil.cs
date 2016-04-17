@@ -5260,6 +5260,7 @@ namespace OpenXmlPowerTools
         public static XNamespace pt = "http://powertools.codeplex.com/2011";
         public static XName Uri = pt + "Uri";
         public static XName Unid = pt + "Unid";
+        public static XName SHA1Hash = pt + "SHA1Hash";
 
         public static XName trPr = pt + "trPr";
         public static XName tcPr = pt + "tcPr";

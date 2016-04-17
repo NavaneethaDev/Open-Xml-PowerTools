@@ -1,4 +1,6 @@
-﻿/***************************************************************************
+﻿#define SHORT_UNID
+
+/***************************************************************************
 
 Copyright (c) Microsoft Corporation 2012-2015.
 
@@ -27,11 +29,12 @@ namespace OpenXmlPowerTools
 {
     internal class WmlRunSplitter
     {
-        internal static void Split(WordprocessingDocument wDoc)
+        internal static void Split(WordprocessingDocument wDoc, IEnumerable<OpenXmlPart> parts)
         {
-            SplitAllElements(wDoc);
+            SplitAllElements(wDoc, parts);
         }
 
+        // todo this needs to take other parts into account.
         internal static XDocument Coalesce(SplitRunsAnnotation splitRunsAnnotation)
         {
             XDocument newXDoc = new XDocument();
@@ -149,16 +152,39 @@ namespace OpenXmlPowerTools
             return new XElement(W.r, props1, props2, newChildElements);
         }
 
-        private static void SplitAllElements(WordprocessingDocument wDoc)
+        private static void SplitAllElements(WordprocessingDocument wDoc, IEnumerable<OpenXmlPart> parts)
         {
-            foreach (var part in wDoc.ContentParts())
+            // todo when supporting diffing in all parts, need to iterate here through ContentParts
+            var part = wDoc.MainDocumentPart;
+            AssignIdToAllElements(part);  // add the Guid id to every element for which we need to establish identity
+            MoveLastSectPrIntoLastParagraph(part);
+            AnnotatePartWithSplitRuns(part); // adds the list of SplitRun objects as an annotation to the part
+        }
+
+        private static void MoveLastSectPrIntoLastParagraph(MainDocumentPart part)
+        {
+            XDocument xDoc = part.GetXDocument();
+            var lastSectPrList = xDoc.Root.Element(W.body).Elements(W.sectPr).ToList();
+            if (lastSectPrList.Count() > 1)
+                throw new OpenXmlPowerToolsException("Invalid document");
+            var lastSectPr = lastSectPrList.FirstOrDefault();
+            if (lastSectPr != null)
             {
-                AnnotateAllElements(part);
-                AnnotateWithSplitRuns(part);
+                var lastParagraph = xDoc.Root.Elements(W.body).Elements(W.p).LastOrDefault();
+                if (lastParagraph == null)
+                    throw new OpenXmlPowerToolsException("Invalid document");
+                var pPr = lastParagraph.Element(W.pPr);
+                if (pPr == null)
+                {
+                    pPr = new XElement(W.pPr);
+                    lastParagraph.AddFirst(W.pPr);
+                }
+                pPr.Add(lastSectPr);
+                xDoc.Root.Element(W.body).Elements(W.sectPr).Remove();
             }
         }
 
-        private static void AnnotateWithSplitRuns(OpenXmlPart part)
+        private static void AnnotatePartWithSplitRuns(OpenXmlPart part)
         {
             var partXDoc = part.GetXDocument();
             var splitRunsAnnotation = new SplitRunsAnnotation();
@@ -174,6 +200,42 @@ namespace OpenXmlPowerTools
             
             part.AddAnnotation(splitRunsAnnotation);
         }
+
+        // note that if we were to support comments, this would change
+        private static XName[] AllowableRunChildren = new XName[] {
+            W.br,
+            W.drawing,
+            W.continuationSeparator,
+            W.cr,
+            W.dayLong,
+            W.dayShort,
+            W.endnoteRef,
+            W.footnoteRef,
+            W.footnoteReference,
+            W.monthLong,
+            W.monthShort,
+            W.noBreakHyphen,
+            W._object,
+            W.pgNum,
+            W.ptab,
+            W.separator,
+            W.softHyphen,
+            W.sym,
+            W.tab,
+            W.yearLong,
+            W.yearShort,
+            W.fldChar,
+            W.instrText,
+            W.bookmarkStart,
+            W.bookmarkEnd,
+        };
+
+        private static XName[] ElementsToThrowAway = new XName[] {
+            W.lastRenderedPageBreak,
+            W.proofErr,
+            W.tblPr,
+            W.sectPr,
+        };
 
         private static void AnnotateWithSplitRunsRecurse(XElement element, List<SplitRun> splitRuns)
         {
@@ -203,7 +265,7 @@ namespace OpenXmlPowerTools
                 {
                     SplitRun pPrSplitRun = new SplitRun();
                     pPrSplitRun.ContentAtom = paraProps;
-                    pPrSplitRun.AncestorElements = element.Ancestors().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
+                    pPrSplitRun.AncestorElements = element.AncestorsAndSelf().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
                     splitRuns.Add(pPrSplitRun);
                 }
                 return;
@@ -232,37 +294,7 @@ namespace OpenXmlPowerTools
                 return;
             }
 
-            if (element.Name == W.tbl)
-            {
-                AnnotateElementWithProps(element, splitRuns, W.tblPr, W.tblGrid);
-                return;
-            }
-
-            if (element.Name == W.tr)
-            {
-                AnnotateElementWithProps(element, splitRuns, W.trPr, null);
-                return;
-            }
-
-            if (element.Name == W.tc)
-            {
-                AnnotateElementWithProps(element, splitRuns, W.tcPr, null);
-                return;
-            }
-
-            if (element.Name == W.sdt)
-            {
-                AnnotateElementWithProps(element, splitRuns, W.sdtPr, null);
-                return;
-            }
-
-            if (element.Name == W.sdtContent)
-            {
-                AnnotateElementWithProps(element, splitRuns, null, null);
-                return;
-            }
-
-            if (element.Name == W.sectPr)
+            if (AllowableRunChildren.Contains(element.Name))
             {
                 SplitRun sr3 = new SplitRun();
                 sr3.ContentAtom = element;
@@ -271,51 +303,89 @@ namespace OpenXmlPowerTools
                 return;
             }
 
-            if (element.Name == W.proofErr ||
-                element.Name == W.tblPr)
+            if (element.Name == W.tbl)
+            {
+                AnnotateElementWithProps(element, splitRuns, W.tblPr, W.tblGrid, W.tblPrEx);
+                return;
+            }
+
+            if (element.Name == W.tr)
+            {
+                AnnotateElementWithProps(element, splitRuns, W.trPr, W.tblPrEx, null);
+                return;
+            }
+
+            if (element.Name == W.tc)
+            {
+                AnnotateElementWithProps(element, splitRuns, W.tcPr, W.tblPrEx, null);
+                return;
+            }
+
+            if (element.Name == W.sdt)
+            {
+                AnnotateElementWithProps(element, splitRuns, W.sdtPr, null, null);
+                return;
+            }
+
+            if (element.Name == W.sdtContent)
+            {
+                AnnotateElementWithProps(element, splitRuns, null, null, null);
+                return;
+            }
+
+            if (ElementsToThrowAway.Contains(element.Name))
                 return;
 
-            SplitRun sr2 = new SplitRun();
-            sr2.ContentAtom = element;
-            sr2.AncestorElements = element.Ancestors().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
-            splitRuns.Add(sr2);
+            throw new OpenXmlPowerToolsException("Internal error - unexpected element");
+            //SplitRun sr2 = new SplitRun();
+            //sr2.ContentAtom = element;
+            //sr2.AncestorElements = element.Ancestors().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
+            //splitRuns.Add(sr2);
 
-            var elementChildrenToProcess = element
-                .Elements();
-            foreach (var item in elementChildrenToProcess)
-                AnnotateWithSplitRunsRecurse(item, splitRuns);
+            //var elementChildrenToProcess = element
+            //    .Elements();
+            //foreach (var item in elementChildrenToProcess)
+            //    AnnotateWithSplitRunsRecurse(item, splitRuns);
         }
 
-        private static void AnnotateElementWithProps(XElement element, List<SplitRun> splitRuns, XName props1XName, XName props2XName)
+        private static void AnnotateElementWithProps(XElement element, List<SplitRun> splitRuns, XName props1XName, XName props2XName, XName props3XName)
         {
             var runChildrenToProcess = element
                 .Elements()
                 .Where(e => e.Name != props1XName &&
-                            e.Name != props2XName);
+                            e.Name != props2XName &&
+                            e.Name != props3XName);
             foreach (var item in runChildrenToProcess)
                 AnnotateWithSplitRunsRecurse(item, splitRuns);
         }
 
-        private static void AnnotateAllElements(OpenXmlPart part)
+        private static XName[] ElementsToHaveUnid = new XName[]
+        {
+            W.p,
+            W.r,
+            W.tbl,
+            W.tr,
+            W.tc,
+            W.fldSimple,
+            W.hyperlink,
+            W.sdt,
+            W.smartTag,
+            // W.drawing,
+        };
+
+        private static void AssignIdToAllElements(OpenXmlPart part)
         {
             var partXDoc = part.GetXDocument();
-            int seq = 1;
             var content = partXDoc
                 .Descendants()
-                .Where(d =>
-                    d.Name == W.p ||
-                    d.Name == W.r ||
-                    d.Name == W.tbl ||
-                    d.Name == W.tr ||
-                    d.Name == W.tc ||
-                    d.Name == W.fldSimple ||
-                    d.Name == W.hyperlink ||
-                    d.Name == W.sdt ||
-                    d.Name == W.smartTag);
+                .Where(d => ElementsToHaveUnid.Contains(d.Name));
             foreach (var d in content)
             {
-                var unidKey = string.Format("{0:0000000000}", seq++);
-                var newAtt = new XAttribute(PtOpenXml.Unid, unidKey);
+                var newAtt = new XAttribute(PtOpenXml.Unid, Guid.NewGuid().ToString().Replace("-", "")
+#if SHORT_UNID
+                    .Substring(0, 12) // when debugging
+#endif
+                );
                 d.Add(newAtt);
             }
             var root = partXDoc.Root;
@@ -345,6 +415,7 @@ namespace OpenXmlPowerTools
     {
         public XElement[] AncestorElements;
         public XElement ContentAtom;
+        public CorrelationStatus CorrelationStatus;
 
         public string ToString(int indent)
         {
@@ -353,17 +424,25 @@ namespace OpenXmlPowerTools
 
             var sb = new StringBuilder();
             sb.Append(indentString);
+            string correlationStatus = "";
+            if (CorrelationStatus != OpenXmlPowerTools.CorrelationStatus.Nil)
+                correlationStatus = string.Format("({0}) ", CorrelationStatus.ToString().PadRight(8));
             if (ContentAtom.Name == W.t)
             {
-                sb.AppendFormat("{0}: {1} ", PadLocalName(xNamePad, this), ContentAtom.Value);
+                sb.AppendFormat("{0}: {1} {2}", PadLocalName(xNamePad, this), ContentAtom.Value, correlationStatus);
                 AppendAncestorsDump(sb, this);
             }
             else
             {
-                sb.AppendFormat("{0}:   ", PadLocalName(xNamePad, this));
+                sb.AppendFormat("{0}:   {1}", PadLocalName(xNamePad, this), correlationStatus);
                 AppendAncestorsDump(sb, this);
             }
             return sb.ToString();
+        }
+
+        public override string ToString()
+        {
+            return ToString(0);
         }
 
         private static string PadLocalName(int xNamePad, SplitRun item)

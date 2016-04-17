@@ -50,7 +50,7 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(annotatedDocx.FullName, true))
             {
-                WmlRunSplitter.Split(wDoc);
+                WmlRunSplitter.Split(wDoc, new[] { wDoc.MainDocumentPart });
             }
             //var assembledFormattingDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-2-FormattingAssembled.docx")));
             //CopyFormattingAssembledDocx(sourceDocx, assembledFormattingDestDocx);
@@ -82,7 +82,7 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(coalescedDocx.FullName, true))
             {
-                WmlRunSplitter.Split(wDoc);
+                WmlRunSplitter.Split(wDoc, new[] { wDoc.MainDocumentPart });
                 StringBuilder sb = new StringBuilder();
                 foreach (var part in wDoc.ContentParts())
                 {
