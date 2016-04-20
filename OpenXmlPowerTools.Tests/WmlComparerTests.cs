@@ -59,6 +59,7 @@ namespace OxPt
             "The attribute 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:val' has invalid value '0'. The MinInclusive constraint failed. The value must be greater than or equal to 1.",
             "The attribute 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:val' has invalid value '0'. The MinInclusive constraint failed. The value must be greater than or equal to 2.",
         };
+
         [Theory]
         [InlineData("SR001-Plain.docx", "SR001-Plain-Mod.docx")]
         [InlineData("WC001-Digits.docx", "WC001-Digits-Mod.docx")]
@@ -84,6 +85,8 @@ namespace OxPt
         [InlineData("WC007-Unmodified.docx", "WC007-Deleted-at-Beginning-of-Para.docx")]
         [InlineData("WC007-Unmodified.docx", "WC007-Moved-into-Table.docx")]
         [InlineData("WC009-Table-Unmodified.docx", "WC009-Table-Cell-1-1-Mod.docx")]
+        [InlineData("WC010-Para-Before-Table-Unmodified.docx", "WC010-Para-Before-Table-Mod.docx")]
+        [InlineData("WC011-Before.docx", "WC011-After.docx")]
 
         public void WC001_Compare(string name1, string name2)
         {

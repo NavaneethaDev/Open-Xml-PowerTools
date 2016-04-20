@@ -61,15 +61,11 @@ namespace OpenXmlPowerTools
     public class WmlComparerSettings
     {
         public char[] WordSeparators;
-        public bool AcceptRevisionsBeforeProcessing;
-        public bool CompareOnlyMainDocumentPart;
 
         public WmlComparerSettings()
         {
             // note that , and . are processed explicitly to handle cases where they are in a number or word
-            WordSeparators = new[] { ' ' }; // todo need to fix this for complete list
-            AcceptRevisionsBeforeProcessing = true;
-            CompareOnlyMainDocumentPart = true;
+            WordSeparators = new[] { ' ', '-' }; // todo need to fix this for complete list
         }
     }
 
@@ -79,9 +75,6 @@ namespace OpenXmlPowerTools
         // todo look for invalid content, throw if found
         public static WmlDocument Compare(WmlDocument source1, WmlDocument source2, WmlComparerSettings settings)
         {
-            if (settings.CompareOnlyMainDocumentPart == false)
-                throw new NotImplementedException("Comparing headers and footers not implemented. Set CompareOnlyMainDocumentPart to true.");
-
             WmlDocument wmlResult = new WmlDocument(source2);
             using (MemoryStream ms1 = new MemoryStream())
             using (MemoryStream ms2 = new MemoryStream())
@@ -93,18 +86,33 @@ namespace OpenXmlPowerTools
                 {
                     RemoveIrrelevantMarkup(wDoc1);
                     RemoveIrrelevantMarkup(wDoc2);
+
+                    SimplifyMarkupSettings msSettings = new SimplifyMarkupSettings()
+                    {
+                        RemoveBookmarks = true,
+                        AcceptRevisions = true,
+                        RemoveComments = true,
+                        RemoveContentControls = true,
+                        RemoveFieldCodes = true,
+                        RemoveGoBackBookmark = true,
+                        RemoveLastRenderedPageBreak = true,
+                        RemovePermissions = true,
+                        RemoveProof = true,
+                        RemoveSmartTags = true,
+                        RemoveSoftHyphens = true,
+                    };
+                    MarkupSimplifier.SimplifyMarkup(wDoc1, msSettings);
+                    MarkupSimplifier.SimplifyMarkup(wDoc2, msSettings);
+
                     AddSha1HashToParagraphs(wDoc1);
                     AddSha1HashToParagraphs(wDoc2);
-                    if (settings.CompareOnlyMainDocumentPart)
-                    {
-                        WmlRunSplitter.Split(wDoc1, new[] { wDoc1.MainDocumentPart });
-                        WmlRunSplitter.Split(wDoc2, new[] { wDoc2.MainDocumentPart });
-                    }
-                    else
-                    {
-                        WmlRunSplitter.Split(wDoc1, wDoc1.ContentParts());
-                        WmlRunSplitter.Split(wDoc2, wDoc2.ContentParts());
-                    }
+                    WmlRunSplitter.Split(wDoc1, new[] { wDoc1.MainDocumentPart });
+                    WmlRunSplitter.Split(wDoc2, new[] { wDoc2.MainDocumentPart });
+
+                    // if we were to compare headers and footers, then would want to iterate through ContentParts
+                    //WmlRunSplitter.Split(wDoc1, wDoc1.ContentParts());
+                    //WmlRunSplitter.Split(wDoc2, wDoc2.ContentParts());
+
                     SplitRunsAnnotation sra1 = wDoc1.MainDocumentPart.Annotation<SplitRunsAnnotation>();
                     SplitRunsAnnotation sra2 = wDoc2.MainDocumentPart.Annotation<SplitRunsAnnotation>();
                     return ApplyChanges(sra1, sra2, wmlResult, settings);
@@ -229,6 +237,16 @@ namespace OpenXmlPowerTools
                         }));
 
                     return evenNewerPara;
+                }
+
+                if (element.Name == W.pPr)
+                {
+                    var new_pPr = new XElement(W.pPr,
+                        element.Attributes(),
+                        element.Elements()
+                            .Where(e => e.Name != W.sectPr)
+                            .Select(n => CloneParaForHashing(n)));
+                    return new_pPr;
                 }
 
                 if (element.Name == W.r)
@@ -389,11 +407,11 @@ namespace OpenXmlPowerTools
                 .SelectMany(m => m)
                 .ToList();
 
-            //var sb2 = new StringBuilder();
-            //foreach (var item in listOfSplitRuns)
-            //    sb2.Append(item.ToString()).Append(Environment.NewLine);
-            //var sbs2 = sb2.ToString();
-            //Console.WriteLine(sbs2);
+            var sb2 = new StringBuilder();
+            foreach (var item in listOfSplitRuns)
+                sb2.Append(item.ToString()).Append(Environment.NewLine);
+            var sbs2 = sb2.ToString();
+            Console.WriteLine(sbs2);
 
             using (MemoryStream ms = new MemoryStream())
             {
@@ -406,9 +424,15 @@ namespace OpenXmlPowerTools
                         .Attributes()
                         .Where(a => a.IsNamespaceDeclaration || a.Name.Namespace == MC.mc)
                         .ToList();
+
+                    // ======================================
+                    // The following produces a new valid WordprocessingML document from the listOfSplitRuns
                     XDocument newXDoc = ProduceNewXDocFromCorrelatedSequence(listOfSplitRuns, rootNamespaceAttributes);
+
+                    // little bit of cleanup
                     MoveLastSectPrToChildOfBody(newXDoc);
-                    xDoc.Root.ReplaceWith(newXDoc.Root);
+                    XElement newRoot = (XElement)WordprocessingMLUtil.WmlOrderElementsPerStandard(newXDoc.Root);
+                    xDoc.Root.ReplaceWith(newRoot);
 
                     var root = xDoc.Root;
                     if (root.Attribute(XNamespace.Xmlns + "pt14") == null)
@@ -460,12 +484,12 @@ namespace OpenXmlPowerTools
             // fabricate new MainDocumentPart from correlatedSequence
 
             //dump out split runs
-            //var sb = new StringBuilder();
-            //foreach (var item in splitRuns)
-            //    sb.Append(item.ToString()).Append(Environment.NewLine);
-            //var s = sb.ToString();
-            //File.WriteAllText("foo.txt", s);
-            //Console.WriteLine(s);
+            var sb = new StringBuilder();
+            foreach (var item in splitRuns)
+                sb.Append(item.ToString()).Append(Environment.NewLine);
+            var sbs = sb.ToString();
+            Console.WriteLine(sbs);
+            //File.WriteAllText("foo.txt", sbs);
 
             s_MaxId = 0;
             s_Now = DateTime.Now.ToString("o");
@@ -517,21 +541,19 @@ namespace OpenXmlPowerTools
                     return unid;
                 });
 
-#if false
-            var sb = new StringBuilder();
-            foreach (var group in grouped)
-            {
-                sb.AppendFormat("Group Key: {0}", group.Key);
-                sb.Append(Environment.NewLine);
-                foreach (var groupChildItem in group)
-                {
-                    sb.Append("  ");
-                    sb.Append(groupChildItem.ToString(0));
-                    sb.Append(Environment.NewLine);
-                }
-                sb.Append(Environment.NewLine);
-            }
-#endif
+            //var sb = new StringBuilder();
+            //foreach (var group in grouped)
+            //{
+            //    sb.AppendFormat("Group Key: {0}", group.Key);
+            //    sb.Append(Environment.NewLine);
+            //    foreach (var groupChildItem in group)
+            //    {
+            //        sb.Append("  ");
+            //        sb.Append(groupChildItem.ToString(0));
+            //        sb.Append(Environment.NewLine);
+            //    }
+            //    sb.Append(Environment.NewLine);
+            //}
 
             var elementList = grouped
                 .Select(g =>
@@ -565,7 +587,9 @@ namespace OpenXmlPowerTools
                             pPrSplitRun = newParaPropsGroup.FirstOrDefault();
                             if (pPrSplitRun != null)
                             {
-                                pPr = pPrSplitRun.ContentAtom;
+                                pPr = new XElement(pPrSplitRun.ContentAtom); // clone so we can change it
+                                if (pPrSplitRun.CorrelationStatus == CorrelationStatus.Deleted)
+                                    pPr.Elements(W.sectPr).Remove(); // for now, don't move sectPr from old document to new document.
                             }
                         }
                         if (pPrSplitRun != null)
@@ -574,17 +598,31 @@ namespace OpenXmlPowerTools
                                 pPr = new XElement(W.pPr);
                             if (pPrSplitRun.CorrelationStatus == CorrelationStatus.Deleted)
                             {
-                                pPr.Add(new XElement(W.rPr, new XElement(W.del,
+                                XElement rPr = pPr.Element(W.rPr);
+                                if (rPr == null)
+                                    rPr = new XElement(W.rPr);
+                                rPr.Add(new XElement(W.del,
                                     new XAttribute(W.author, "Open-Xml-PowerTools"),
                                     new XAttribute(W.id, s_MaxId++),
-                                    new XAttribute(W.date, s_Now))));
+                                    new XAttribute(W.date, s_Now)));
+                                if (pPr.Element(W.rPr) != null)
+                                    pPr.Element(W.rPr).ReplaceWith(rPr);
+                                else
+                                    pPr.AddFirst(rPr);
                             }
                             else if (pPrSplitRun.CorrelationStatus == CorrelationStatus.Inserted)
                             {
-                                pPr.Add(new XElement(W.rPr, new XElement(W.ins,
+                                XElement rPr = pPr.Element(W.rPr);
+                                if (rPr == null)
+                                    rPr = new XElement(W.rPr);
+                                rPr.Add(new XElement(W.ins,
                                     new XAttribute(W.author, "Open-Xml-PowerTools"),
                                     new XAttribute(W.id, s_MaxId++),
-                                    new XAttribute(W.date, s_Now))));
+                                    new XAttribute(W.date, s_Now)));
+                                if (pPr.Element(W.rPr) != null)
+                                    pPr.Element(W.rPr).ReplaceWith(rPr);
+                                else
+                                    pPr.AddFirst(rPr);
                             }
                         }
                         var newPara = new XElement(W.p,
@@ -629,6 +667,7 @@ namespace OpenXmlPowerTools
                                 new XAttribute(W.id, s_MaxId++),
                                 new XAttribute(W.date, s_Now),
                                 new XElement(W.r,
+                                    runProps,
                                     newChildElements));
                         }
                         else if (inserting)
@@ -638,6 +677,7 @@ namespace OpenXmlPowerTools
                                 new XAttribute(W.id, s_MaxId++),
                                 new XAttribute(W.date, s_Now),
                                 new XElement(W.r,
+                                    runProps,
                                     newChildElements));
                         }
                         else
@@ -1113,6 +1153,47 @@ namespace OpenXmlPowerTools
                 }
             }
 
+            // if all we match is a paragraph mark, then don't match.
+            if (currentLongestCommonSequenceLength == 1 && cul1[currentI1].Contents.First().ContentAtom.Name == W.pPr)
+            {
+                currentLongestCommonSequenceLength = 0;
+                currentI1 = -1;
+                currentI2 = -1;
+            }
+
+            // if the longest common subsequence starts with a space, and it is longer than 1, then don't include the space.
+            if (currentI1 < cul1.Length && currentI1 != -1)
+            {
+                var contentAtom = cul1[currentI1].Contents.First().ContentAtom;
+                if (currentLongestCommonSequenceLength > 1 && contentAtom.Name == W.t && char.IsWhiteSpace(contentAtom.Value[0]))
+                {
+                    currentI1++;
+                    currentI2++;
+                    currentLongestCommonSequenceLength--;
+                }
+            }
+
+            // if the longest common subsequence is only a space, and it is only a single char long, then don't match
+            if (currentLongestCommonSequenceLength == 1 && currentI1 < cul1.Length && currentI1 != -1)
+            {
+                var contentAtom = cul1[currentI1].Contents.First().ContentAtom;
+                if (contentAtom.Name == W.t && char.IsWhiteSpace(contentAtom.Value[0]))
+                {
+                    currentLongestCommonSequenceLength = 0;
+                    currentI1 = -1;
+                    currentI2 = -1;
+                }
+            }
+
+            // if the longest common subsequence length is less than 20% of the entire length, then don't match
+            var max = Math.Max(cul1.Length, cul2.Length);
+            if (((decimal)currentLongestCommonSequenceLength / (decimal)max) < 0.1M)
+            {
+                currentLongestCommonSequenceLength = 0;
+                currentI1 = -1;
+                currentI2 = -1;
+            }
+
             var newListOfCorrelatedSequence = new List<CorrelatedSequence>();
             if (currentI1 == -1 && currentI2 == -1)
             {
@@ -1216,6 +1297,28 @@ namespace OpenXmlPowerTools
             return newListOfCorrelatedSequence;
         }
 
+        private static XName[] WordBreakElements = new XName[] {
+            W.pPr,
+            W.tab,
+            W.br,
+            W.continuationSeparator,
+            W.cr,
+            W.dayLong,
+            W.dayShort,
+            W.drawing,
+            W.endnoteRef,
+            W.footnoteRef,
+            W.monthLong,
+            W.monthShort,
+            W.noBreakHyphen,
+            W._object,
+            W.ptab,
+            W.separator,
+            W.sym,
+            W.yearLong,
+            W.yearShort,
+        };
+
         private static ComparisonUnit[] GetComparisonUnitList(SplitRunsAnnotation splitRunsAnnotation, WmlComparerSettings settings)
         {
             var splitRuns = splitRunsAnnotation.SplitRuns;
@@ -1269,8 +1372,7 @@ namespace OpenXmlPowerTools
                             key += ancestorsKey;
                         }
                     }
-                    else if (sr.ContentAtom.Name == W.pPr ||
-                        sr.ContentAtom.Name == W.tab)
+                    else if (WordBreakElements.Contains(sr.ContentAtom.Name))
                     {
                         key = i.ToString();
                     }
