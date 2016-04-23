@@ -1,12 +1,6 @@
-﻿// prohibit
-// - altChunk
-// - subDoc
-// - contentPart
-//
-// Test
+﻿// Test
 // - endNotes
 // - footNotes
-
 
 /***************************************************************************
 
@@ -68,6 +62,8 @@ namespace OpenXmlPowerTools
                 using (WordprocessingDocument wDoc1 = WordprocessingDocument.Open(ms1, true))
                 using (WordprocessingDocument wDoc2 = WordprocessingDocument.Open(ms2, true))
                 {
+                    TestForInvalidContent(wDoc1);
+                    TestForInvalidContent(wDoc2);
                     RemoveIrrelevantMarkup(wDoc1);
                     RemoveIrrelevantMarkup(wDoc2);
 
@@ -105,6 +101,24 @@ namespace OpenXmlPowerTools
             }
         }
 
+        // prohibit
+        // - altChunk
+        // - subDoc
+        // - contentPart
+        private static void TestForInvalidContent(WordprocessingDocument wDoc)
+        {
+            foreach (var part in wDoc.ContentParts())
+            {
+                var xDoc = part.GetXDocument();
+                if (xDoc.Descendants(W.altChunk).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains w:altChunk");
+                if (xDoc.Descendants(W.subDoc).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains w:subDoc");
+                if (xDoc.Descendants(W.contentPart).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains w:contentPart");
+            }
+        }
+
         private static void RemoveIrrelevantMarkup(WordprocessingDocument wDoc)
         {
             wDoc.MainDocumentPart
@@ -114,6 +128,13 @@ namespace OpenXmlPowerTools
                 .Where(d => d.Name == W.lastRenderedPageBreak ||
                             d.Name == W.bookmarkStart ||
                             d.Name == W.bookmarkEnd)
+                .Remove();
+            wDoc.MainDocumentPart
+                .GetXDocument()
+                .Root
+                .Descendants()
+                .Attributes()
+                .Where(a => a.Name.Namespace == PtOpenXml.pt)
                 .Remove();
             wDoc.MainDocumentPart.PutXDocument();
         }
@@ -131,7 +152,8 @@ namespace OpenXmlPowerTools
                 var s = cloneParaForHashing.ToString(SaveOptions.DisableFormatting)
                     .Replace(" xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"", "");
                 var ancestorsString = para.Ancestors().TakeWhile(a => a.Name != W.body).Select(a => a.Name.LocalName + "/").StringConcatenate();
-                var sha1Hash = SHA1HashStringForUTF8String(s + ancestorsString);
+                var shaString = s + ancestorsString;
+                var sha1Hash = SHA1HashStringForUTF8String(shaString);
                 var pPr = para.Element(W.pPr);
                 if (pPr == null)
                 {
@@ -239,9 +261,9 @@ namespace OpenXmlPowerTools
                     return newRuns;
                 }
 
-                if (element.Name == A.blip)
+                if (ComparisonUnit.s_ElementsWithRelationshipIds.Contains(element.Name))
                 {
-                    var newBlip = new XElement(element.Name,
+                    var newElement = new XElement(element.Name,
                         element.Attributes().Select(a =>
                         {
                             if (!ComparisonUnit.s_RelationshipAttributeNames.Contains(a.Name))
@@ -250,18 +272,22 @@ namespace OpenXmlPowerTools
                             OpenXmlPart oxp = mainDocumentPart.GetPartById(rId);
                             if (oxp == null)
                                 throw new FileFormatException("Invalid WordprocessingML Document");
-                            byte[] buffer = new byte[1024];
-                            using (var str = oxp.GetStream())
+                            if (!oxp.ContentType.EndsWith("xml"))
                             {
-                                var ret = str.Read(buffer, 0, buffer.Length);
-                                if (ret == 0)
-                                    throw new FileFormatException("Image contains no data");
+                                byte[] buffer = new byte[1024];
+                                using (var str = oxp.GetStream())
+                                {
+                                    var ret = str.Read(buffer, 0, buffer.Length);
+                                    if (ret == 0)
+                                        throw new FileFormatException("Image contains no data");
+                                }
+                                var b64string = Convert.ToBase64String(buffer);
+                                return new XAttribute(a.Name, b64string);
                             }
-                            var b64string = Convert.ToBase64String(buffer);
-                            return new XAttribute(a.Name, b64string);
+                            return null;
                         }),
                         element.Nodes().Select(n => CloneParaForHashing(mainDocumentPart, n)));
-                    return newBlip;
+                    return newElement;
                 }
 
                 if (element.Name == VML.shape)
@@ -1741,6 +1767,39 @@ namespace OpenXmlPowerTools
         {
             Contents = contentAtomList.ToList();
         }
+
+        public static XName[] s_ElementsWithRelationshipIds = new XName[] {
+            A.blip,
+            A.hlinkClick,
+            A.relIds,
+            C.chart,
+            C.externalData,
+            C.userShapes,
+            DGM.relIds,
+            O.OLEObject,
+            VML.fill,
+            VML.imagedata,
+            VML.stroke,
+            W.altChunk,
+            W.attachedTemplate,
+            W.control,
+            W.dataSource,
+            W.embedBold,
+            W.embedBoldItalic,
+            W.embedItalic,
+            W.embedRegular,
+            W.footerReference,
+            W.headerReference,
+            W.headerSource,
+            W.hyperlink,
+            W.printerSettings,
+            W.recipientData,
+            W.saveThroughXslt,
+            W.sourceFileName,
+            W.src,
+            W.subDoc,
+            WNE.toolbarData,
+        };
 
         public static XName[] s_RelationshipAttributeNames = new XName[] {
             R.embed,

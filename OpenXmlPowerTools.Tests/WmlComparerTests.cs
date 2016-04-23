@@ -102,7 +102,10 @@ namespace OxPt
         [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-2.docx")]
         [InlineData("WC021-Math-Before-1.docx", "WC021-Math-After-1.docx")]
         [InlineData("WC022-Image-Math-Para-Before.docx", "WC022-Image-Math-Para-After.docx")]
+<<<<<<< HEAD
         
+=======
+>>>>>>> 77af69c645dd6c1a9a2d33697e5899bf8d39d520
         //[InlineData("", "")]
         //[InlineData("", "")]
         //[InlineData("", "")]
@@ -158,6 +161,129 @@ namespace OxPt
                     }
                     var sbs = sb.ToString();
                     Assert.Equal("", sbs);
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData("WC001-Digits.docx")]
+        [InlineData("WC001-Digits-Deleted-Paragraph.docx")]
+        [InlineData("WC001-Digits-Mod.docx")]
+        [InlineData("WC002-DeleteAtBeginning.docx")]
+        [InlineData("WC002-DeleteAtEnd.docx")]
+        [InlineData("WC002-DeleteInMiddle.docx")]
+        [InlineData("WC002-DiffAtBeginning.docx")]
+        [InlineData("WC002-DiffInMiddle.docx")]
+        [InlineData("WC002-InsertAtBeginning.docx")]
+        [InlineData("WC002-InsertAtEnd.docx")]
+        [InlineData("WC002-InsertInMiddle.docx")]
+        [InlineData("WC002-Unmodified.docx")]
+        [InlineData("WC004-Large.docx")]
+        [InlineData("WC004-Large-Mod.docx")]
+        [InlineData("WC006-Table.docx")]
+        [InlineData("WC006-Table-Delete-Contests-of-Row.docx")]
+        [InlineData("WC006-Table-Delete-Row.docx")]
+        [InlineData("WC007-Deleted-at-Beginning-of-Para.docx")]
+        [InlineData("WC007-Longest-At-End.docx")]
+        [InlineData("WC007-Moved-into-Table.docx")]
+        [InlineData("WC007-Unmodified.docx")]
+        [InlineData("WC009-Table-Cell-1-1-Mod.docx")]
+        [InlineData("WC009-Table-Unmodified.docx")]
+        [InlineData("WC010-Para-Before-Table-Mod.docx")]
+        [InlineData("WC010-Para-Before-Table-Unmodified.docx")]
+        [InlineData("WC011-After.docx")]
+        [InlineData("WC011-Before.docx")]
+        [InlineData("WC012-Math-After.docx")]
+        [InlineData("WC012-Math-Before.docx")]
+        [InlineData("WC013-Image-After.docx")]
+        [InlineData("WC013-Image-After2.docx")]
+        [InlineData("WC013-Image-Before.docx")]
+        [InlineData("WC013-Image-Before2.docx")]
+        [InlineData("WC014-SmartArt-After.docx")]
+        [InlineData("WC014-SmartArt-Before.docx")]
+        [InlineData("WC014-SmartArt-With-Image-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Deleted-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Deleted-After2.docx")]
+        [InlineData("WC015-Three-Paragraphs.docx")]
+        [InlineData("WC015-Three-Paragraphs-After.docx")]
+        [InlineData("WC016-Para-Image-Para.docx")]
+        [InlineData("WC016-Para-Image-Para-w-Deleted-Image.docx")]
+        [InlineData("WC017-Image.docx")]
+        [InlineData("WC017-Image-After.docx")]
+        [InlineData("WC018-Field-Simple-After-1.docx")]
+        [InlineData("WC018-Field-Simple-After-2.docx")]
+        [InlineData("WC018-Field-Simple-Before.docx")]
+        [InlineData("WC019-Hyperlink-After-1.docx")]
+        [InlineData("WC019-Hyperlink-After-2.docx")]
+        [InlineData("WC019-Hyperlink-Before.docx")]
+        [InlineData("WC020-FootNote-After-1.docx")]
+        [InlineData("WC020-FootNote-After-2.docx")]
+        [InlineData("WC020-FootNote-Before.docx")]
+        [InlineData("WC021-Math-After-1.docx")]
+        [InlineData("WC021-Math-Before-1.docx")]
+        [InlineData("WC022-Image-Math-Para-After.docx")]
+        [InlineData("WC022-Image-Math-Para-Before.docx")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+
+        public void WC002_Compare_To_Self(string name)
+        {
+            FileInfo sourceDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name));
+
+            var sourceCopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-Source.docx")));
+            if (!sourceCopiedToDestDocx.Exists)
+                File.Copy(sourceDocx.FullName, sourceCopiedToDestDocx.FullName);
+
+            var before = sourceCopiedToDestDocx.Name.Replace(".docx", "");
+            var docxComparedFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, before + "-COMPARE" + ".docx"));
+            var docxCompared2Fi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, before + "-COMPARE2" + ".docx"));
+
+            WmlDocument source1Wml = new WmlDocument(sourceCopiedToDestDocx.FullName);
+            WmlDocument source2Wml = new WmlDocument(sourceCopiedToDestDocx.FullName);
+            WmlComparerSettings settings = new WmlComparerSettings();
+
+            WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
+            comparedWml.SaveAs(docxComparedFi.FullName);
+            ValidateDocument(comparedWml);
+
+            WmlDocument comparedWml2 = WmlComparer.Compare(comparedWml, source1Wml, settings);
+            comparedWml2.SaveAs(docxCompared2Fi.FullName);
+            ValidateDocument(comparedWml2);
+        }
+
+        private static void ValidateDocument(WmlDocument wmlToValidate)
+        {
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(wmlToValidate.DocumentByteArray, 0, wmlToValidate.DocumentByteArray.Length);
+                using (WordprocessingDocument wDoc = WordprocessingDocument.Open(ms, true))
+                {
+                    OpenXmlValidator validator = new OpenXmlValidator();
+                    var errors = validator.Validate(wDoc).Where(e => !ExpectedErrors.Contains(e.Description));
+                    if (errors.Count() != 0)
+                    {
+                        var ind = "  ";
+                        var sb = new StringBuilder();
+                        foreach (var err in errors)
+                        {
+#if true
+                            sb.Append("Error" + Environment.NewLine);
+                            sb.Append(ind + "ErrorType: " + err.ErrorType.ToString() + Environment.NewLine);
+                            sb.Append(ind + "Description: " + err.Description + Environment.NewLine);
+                            sb.Append(ind + "Part: " + err.Part.Uri.ToString() + Environment.NewLine);
+                            sb.Append(ind + "XPath: " + err.Path.XPath + Environment.NewLine);
+#else
+                        sb.Append("            \"" + err.Description + "\"," + Environment.NewLine);
+#endif
+
+                        }
+                        var sbs = sb.ToString();
+                        Assert.Equal("", sbs);
+                    }
                 }
             }
         }
