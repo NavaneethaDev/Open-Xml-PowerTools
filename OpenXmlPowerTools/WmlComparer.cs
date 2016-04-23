@@ -87,8 +87,8 @@ namespace OpenXmlPowerTools
 
                     AddSha1HashToParagraphs(wDoc1);
                     AddSha1HashToParagraphs(wDoc2);
-                    WmlRunSplitter.Split(wDoc1, new[] { wDoc1.MainDocumentPart });
-                    WmlRunSplitter.Split(wDoc2, new[] { wDoc2.MainDocumentPart });
+                    WmlContentAtomList.CreateContentAtomList(wDoc1, wDoc1.MainDocumentPart);
+                    WmlContentAtomList.CreateContentAtomList(wDoc2, wDoc2.MainDocumentPart);
 
                     // if we were to compare headers and footers, then would want to iterate through ContentParts
                     //WmlRunSplitter.Split(wDoc1, wDoc1.ContentParts());

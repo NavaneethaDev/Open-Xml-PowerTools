@@ -75,7 +75,7 @@
     <Compile Include="SmlToHtmlConverter.cs" />
     <Compile Include="TestUtil.cs" />
     <Compile Include="WmlComparer.cs" />
-    <Compile Include="WmlRunSplitter.cs" />
+    <Compile Include="WmlContentAtomList.cs" />
     <Compile Include="WmlToHtmlConverter.cs" />
     <Compile Include="ListItemRetriever.cs" />
     <Compile Include="MarkupSimplifier.cs" />

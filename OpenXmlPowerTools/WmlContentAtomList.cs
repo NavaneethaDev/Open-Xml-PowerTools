@@ -27,13 +27,15 @@ using DocumentFormat.OpenXml.Packaging;
 
 namespace OpenXmlPowerTools
 {
-    internal class WmlRunSplitter
+    internal class WmlContentAtomList
     {
         public static bool s_DumpLog = false;
 
-        internal static void Split(WordprocessingDocument wDoc, IEnumerable<OpenXmlPart> parts)
+        public static void CreateContentAtomList(WordprocessingDocument wDoc, OpenXmlPart part)
         {
-            SplitAllElements(wDoc, parts);
+            AssignIdToAllElements(part);  // add the Guid id to every element for which we need to establish identity
+            MoveLastSectPrIntoLastParagraph(part);
+            AnnotatePartWithContentAtomListAnnotation(part); // adds the list of ContentAtom objects as an annotation to the part
         }
 
         internal static XDocument Coalesce(ContentAtomListAnnotation contentAtomListAnnotation)
@@ -156,16 +158,7 @@ namespace OpenXmlPowerTools
             return new XElement(W.r, props1, props2, newChildElements);
         }
 
-        private static void SplitAllElements(WordprocessingDocument wDoc, IEnumerable<OpenXmlPart> parts)
-        {
-            // todo when supporting diffing in all parts, need to iterate here through ContentParts
-            var part = wDoc.MainDocumentPart;
-            AssignIdToAllElements(part);  // add the Guid id to every element for which we need to establish identity
-            MoveLastSectPrIntoLastParagraph(part);
-            AnnotatePartWithContentAtomListAnnotation(part); // adds the list of ContentAtom objects as an annotation to the part
-        }
-
-        private static void MoveLastSectPrIntoLastParagraph(MainDocumentPart part)
+        private static void MoveLastSectPrIntoLastParagraph(OpenXmlPart part)
         {
             XDocument xDoc = part.GetXDocument();
             var lastSectPrList = xDoc.Root.Element(W.body).Elements(W.sectPr).ToList();

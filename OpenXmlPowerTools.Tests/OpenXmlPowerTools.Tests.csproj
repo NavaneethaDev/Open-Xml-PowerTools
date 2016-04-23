@@ -75,7 +75,7 @@
     <Compile Include="SmlToHtmlConverterTests.cs" />
     <Compile Include="SpreadsheetWriterTests.cs" />
     <Compile Include="WmlComparerTests.cs" />
-    <Compile Include="WmlRunSplitterTests.cs" />
+    <Compile Include="WmlContentAtomListTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
