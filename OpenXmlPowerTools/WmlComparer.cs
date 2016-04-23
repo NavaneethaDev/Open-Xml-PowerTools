@@ -1,22 +1,9 @@
-﻿// TODO rationalize relationship ids in deleted content - need to copy the part over, update the relationship id in the deleted content.
-// TODO make sure image modifications are captured
-
-// prohibit
+﻿// prohibit
 // - altChunk
-// - permEnd
-// - permStart
-// - sdt
 // - subDoc
-// - smartTag
 // - contentPart
 //
-// remove
-// - proofErr
-// - sectPr
-//
 // Test
-// - fldSimple
-// - hyperlink
 // - endNotes
 // - footNotes
 
@@ -97,6 +84,7 @@ namespace OpenXmlPowerTools
                         RemoveProof = true,
                         RemoveSmartTags = true,
                         RemoveSoftHyphens = true,
+                        RemoveHyperlinks = true,
                     };
                     MarkupSimplifier.SimplifyMarkup(wDoc1, msSettings);
                     MarkupSimplifier.SimplifyMarkup(wDoc2, msSettings);
@@ -851,6 +839,8 @@ namespace OpenXmlPowerTools
                         return ReconstructElement(part, g, ancestorBeingConstructed, W.tcPr, null, level, settings);
                     if (ancestorBeingConstructed.Name == W.sdt)
                         return ReconstructElement(part, g, ancestorBeingConstructed, W.sdtPr, W.sdtEndPr, level, settings);
+                    if (ancestorBeingConstructed.Name == W.hyperlink)
+                        return ReconstructElement(part, g, ancestorBeingConstructed, null, null, level, settings);
                     if (ancestorBeingConstructed.Name == W.sdtContent)
                         return (object)ReconstructElement(part, g, ancestorBeingConstructed, null, null, level, settings);
 

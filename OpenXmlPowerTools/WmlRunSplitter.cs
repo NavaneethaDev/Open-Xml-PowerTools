@@ -353,6 +353,12 @@ namespace OpenXmlPowerTools
                 return;
             }
 
+            if (element.Name == W.hyperlink)
+            {
+                AnnotateElementWithProps(part, element, contentAtomList, null, null, null);
+                return;
+            }
+
             if (ElementsToThrowAway.Contains(element.Name))
                 return;
 
