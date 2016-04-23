@@ -1,12 +1,6 @@
-﻿// prohibit
-// - altChunk
-// - subDoc
-// - contentPart
-//
-// Test
+﻿// Test
 // - endNotes
 // - footNotes
-
 
 /***************************************************************************
 
@@ -68,6 +62,8 @@ namespace OpenXmlPowerTools
                 using (WordprocessingDocument wDoc1 = WordprocessingDocument.Open(ms1, true))
                 using (WordprocessingDocument wDoc2 = WordprocessingDocument.Open(ms2, true))
                 {
+                    TestForInvalidContent(wDoc1);
+                    TestForInvalidContent(wDoc2);
                     RemoveIrrelevantMarkup(wDoc1);
                     RemoveIrrelevantMarkup(wDoc2);
 
@@ -102,6 +98,24 @@ namespace OpenXmlPowerTools
                     ContentAtomListAnnotation sra2 = wDoc2.MainDocumentPart.Annotation<ContentAtomListAnnotation>();
                     return ApplyChanges(sra1, sra2, wmlResult, settings);
                 }
+            }
+        }
+
+        // prohibit
+        // - altChunk
+        // - subDoc
+        // - contentPart
+        private static void TestForInvalidContent(WordprocessingDocument wDoc)
+        {
+            foreach (var part in wDoc.ContentParts())
+            {
+                var xDoc = part.GetXDocument();
+                if (xDoc.Descendants(W.altChunk).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains w:altChunk");
+                if (xDoc.Descendants(W.subDoc).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains w:subDoc");
+                if (xDoc.Descendants(W.contentPart).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains w:contentPart");
             }
         }
 

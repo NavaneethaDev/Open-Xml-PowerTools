@@ -4513,6 +4513,7 @@ namespace OpenXmlPowerTools
         public static XName compatSetting = w + "compatSetting";
         public static XName connectString = w + "connectString";
         public static XName consecutiveHyphenLimit = w + "consecutiveHyphenLimit";
+        public static XName contentPart = w + "contentPart";
         public static XName contextualSpacing = w + "contextualSpacing";
         public static XName continuationSeparator = w + "continuationSeparator";
         public static XName control = w + "control";
