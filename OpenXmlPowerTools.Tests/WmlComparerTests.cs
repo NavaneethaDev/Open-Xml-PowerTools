@@ -100,6 +100,8 @@ namespace OxPt
         [InlineData("WC019-Hyperlink-Before.docx", "WC019-Hyperlink-After-2.docx")]
         [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-1.docx")]
         [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-2.docx")]
+        [InlineData("WC021-Math-Before-1.docx", "WC021-Math-After-1.docx")]
+        [InlineData("WC022-Image-Math-Para-Before.docx", "WC022-Image-Math-Para-After.docx")]
         //[InlineData("", "")]
         //[InlineData("", "")]
         //[InlineData("", "")]
