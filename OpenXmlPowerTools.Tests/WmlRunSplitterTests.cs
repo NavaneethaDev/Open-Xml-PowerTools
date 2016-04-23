@@ -68,7 +68,7 @@ namespace OxPt
         [InlineData("SR005-Table.docx")]
         [InlineData("SR006-ContentControl.docx")]
         
-        public void RS002_SplitRuns(string name)
+        public void RS002_ContentAtoms(string name)
         {
             FileInfo sourceDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name));
 
@@ -78,7 +78,7 @@ namespace OxPt
             var coalescedDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-2-Coalesced.docx")));
             File.Copy(sourceDocx.FullName, coalescedDocx.FullName);
 
-            var splitRunDataFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-3-SplitRunData.txt")));
+            var contentAtomDataFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-3-ContentAtomData.txt")));
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(coalescedDocx.FullName, true))
             {
@@ -86,20 +86,20 @@ namespace OxPt
                 StringBuilder sb = new StringBuilder();
                 foreach (var part in wDoc.ContentParts())
                 {
-                    var spa = part.Annotation<SplitRunsAnnotation>();
+                    var spa = part.Annotation<ContentAtomListAnnotation>();
                     if (spa == null)
                         throw new OpenXmlPowerToolsException("Internal error, annotation does not exist");
 
                     sb.AppendFormat("Part: {0}", part.Uri.ToString());
                     sb.Append(Environment.NewLine);
-                    sb.Append(spa.DumpSplitRunsAnnotation(2));
+                    sb.Append(spa.DumpContentAtomListAnnotation(2));
                     sb.Append(Environment.NewLine);
 
                     XDocument newMainXDoc = WmlRunSplitter.Coalesce(spa);
                     var partXDoc = wDoc.MainDocumentPart.GetXDocument();
                     partXDoc.Root.ReplaceWith(newMainXDoc.Root);
                 }
-                File.WriteAllText(splitRunDataFi.FullName, sb.ToString());
+                File.WriteAllText(contentAtomDataFi.FullName, sb.ToString());
             }
         }
     }

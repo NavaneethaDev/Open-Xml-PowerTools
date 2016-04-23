@@ -1,10 +1,6 @@
 ﻿// TODO rationalize relationship ids in deleted content - need to copy the part over, update the relationship id in the deleted content.
 // TODO make sure image modifications are captured
 
-// add identity to revisions
-
-// integrate MarkupSimplifier
-
 // prohibit
 // - altChunk
 // - permEnd
@@ -17,9 +13,6 @@
 // remove
 // - proofErr
 // - sectPr
-//
-// TODO handle oMath and oMathPara
-// TODO handle and test RTL
 //
 // Test
 // - fldSimple
@@ -50,6 +43,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.IO.Packaging;
 using System.Text;
 using System.Xml.Linq;
 using DocumentFormat.OpenXml.Packaging;
@@ -61,6 +55,8 @@ namespace OpenXmlPowerTools
     public class WmlComparerSettings
     {
         public char[] WordSeparators;
+        public string AuthorForRevisions = "Open-Xml-PowerTools";
+        public string DateTimeForRevisions = DateTime.Now.ToString("o");
 
         public WmlComparerSettings()
         {
@@ -71,7 +67,8 @@ namespace OpenXmlPowerTools
 
     public static class WmlComparer
     {
-        // todo need to accept revisions if necessary
+        public static bool s_DumpLog = false;
+
         // todo look for invalid content, throw if found
         public static WmlDocument Compare(WmlDocument source1, WmlDocument source2, WmlComparerSettings settings)
         {
@@ -113,8 +110,8 @@ namespace OpenXmlPowerTools
                     //WmlRunSplitter.Split(wDoc1, wDoc1.ContentParts());
                     //WmlRunSplitter.Split(wDoc2, wDoc2.ContentParts());
 
-                    SplitRunsAnnotation sra1 = wDoc1.MainDocumentPart.Annotation<SplitRunsAnnotation>();
-                    SplitRunsAnnotation sra2 = wDoc2.MainDocumentPart.Annotation<SplitRunsAnnotation>();
+                    ContentAtomListAnnotation sra1 = wDoc1.MainDocumentPart.Annotation<ContentAtomListAnnotation>();
+                    ContentAtomListAnnotation sra2 = wDoc2.MainDocumentPart.Annotation<ContentAtomListAnnotation>();
                     return ApplyChanges(sra1, sra2, wmlResult, settings);
                 }
             }
@@ -142,11 +139,7 @@ namespace OpenXmlPowerTools
 
             foreach (var para in paragraphsToAnnotate)
             {
-                //var tempStr = para.Value;
-                //if (tempStr.Contains(" 0°") && tempStr.Contains("≤"))
-                //    Console.WriteLine();
-
-                var cloneParaForHashing = (XElement)CloneParaForHashing(para);
+                var cloneParaForHashing = (XElement)CloneParaForHashing(wDoc1.MainDocumentPart, para);
                 var s = cloneParaForHashing.ToString(SaveOptions.DisableFormatting)
                     .Replace(" xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"", "");
                 var ancestorsString = para.Ancestors().TakeWhile(a => a.Name != W.body).Select(a => a.Name.LocalName + "/").StringConcatenate();
@@ -192,7 +185,7 @@ namespace OpenXmlPowerTools
             return sb.ToString();
         }
 
-        private static object CloneParaForHashing(XNode node)
+        private static object CloneParaForHashing(OpenXmlPart mainDocumentPart, XNode node)
         {
             var element = node as XElement;
             if (element != null)
@@ -215,7 +208,7 @@ namespace OpenXmlPowerTools
                                 a.Name != W.rsidRPr &&
                                 a.Name != W.rsidSect &&
                                 a.Name != W.rsidTr),
-                        element.Nodes().Select(n => CloneParaForHashing(n)));
+                        element.Nodes().Select(n => CloneParaForHashing(mainDocumentPart, n)));
 
                     var groupedRuns = newPara
                         .Elements()
@@ -245,7 +238,7 @@ namespace OpenXmlPowerTools
                         element.Attributes(),
                         element.Elements()
                             .Where(e => e.Name != W.sectPr)
-                            .Select(n => CloneParaForHashing(n)));
+                            .Select(n => CloneParaForHashing(mainDocumentPart, n)));
                     return new_pPr;
                 }
 
@@ -254,15 +247,40 @@ namespace OpenXmlPowerTools
                     var newRuns = element
                         .Elements()
                         .Where(e => e.Name != W.rPr)
-                        .Select(rc => new XElement(W.r, CloneParaForHashing(rc)));
+                        .Select(rc => new XElement(W.r, CloneParaForHashing(mainDocumentPart, rc)));
                     return newRuns;
+                }
+
+                if (element.Name == A.blip)
+                {
+                    var newBlip = new XElement(element.Name,
+                        element.Attributes().Select(a =>
+                        {
+                            if (!ComparisonUnit.s_RelationshipAttributeNames.Contains(a.Name))
+                                return a;
+                            var rId = (string)a;
+                            OpenXmlPart oxp = mainDocumentPart.GetPartById(rId);
+                            if (oxp == null)
+                                throw new FileFormatException("Invalid WordprocessingML Document");
+                            byte[] buffer = new byte[1024];
+                            using (var str = oxp.GetStream())
+                            {
+                                var ret = str.Read(buffer, 0, buffer.Length);
+                                if (ret == 0)
+                                    throw new FileFormatException("Image contains no data");
+                            }
+                            var b64string = Convert.ToBase64String(buffer);
+                            return new XAttribute(a.Name, b64string);
+                        }),
+                        element.Nodes().Select(n => CloneParaForHashing(mainDocumentPart, n)));
+                    return newBlip;
                 }
 
                 if (element.Name == VML.shape)
                 {
                     return new XElement(element.Name,
                         element.Attributes().Where(a => a.Name != "style"),
-                        element.Nodes().Select(n => CloneParaForHashing(n)));
+                        element.Nodes().Select(n => CloneParaForHashing(mainDocumentPart, n)));
                 }
 
                 if (element.Name == O.OLEObject)
@@ -271,43 +289,46 @@ namespace OpenXmlPowerTools
                         element.Attributes().Where(a =>
                             a.Name != "ObjectID" &&
                             a.Name != R.id),
-                        element.Nodes().Select(n => CloneParaForHashing(n)));
+                        element.Nodes().Select(n => CloneParaForHashing(mainDocumentPart, n)));
                 }
 
                 return new XElement(element.Name,
                     element.Attributes(),
-                    element.Nodes().Select(n => CloneParaForHashing(n)));
+                    element.Nodes().Select(n => CloneParaForHashing(mainDocumentPart, n)));
             }
             return node;
         }
 
-        private static WmlDocument ApplyChanges(SplitRunsAnnotation sra1, SplitRunsAnnotation sra2, WmlDocument wmlResult,
+        private static WmlDocument ApplyChanges(ContentAtomListAnnotation sra1, ContentAtomListAnnotation sra2, WmlDocument wmlResult,
             WmlComparerSettings settings)
         {
             var cu1 = GetComparisonUnitList(sra1, settings);
             var cu2 = GetComparisonUnitList(sra2, settings);
 
-            var sb3 = new StringBuilder();
-            sb3.Append("ComparisonUnitList 1 =====" + Environment.NewLine);
-            foreach (var item in cu1)
+            if (s_DumpLog)
             {
-                sb3.Append("  ComparisonUnit =====" + Environment.NewLine);
-                foreach (var cu in item.Contents)
+                var sb3 = new StringBuilder();
+                sb3.Append("ComparisonUnitList 1 =====" + Environment.NewLine);
+                foreach (var item in cu1)
                 {
-                    sb3.Append(cu.ToString(4) + Environment.NewLine);
+                    sb3.Append("  ComparisonUnit =====" + Environment.NewLine);
+                    foreach (var cu in item.Contents)
+                    {
+                        sb3.Append(cu.ToString(4) + Environment.NewLine);
+                    }
                 }
-            }
-            sb3.Append("ComparisonUnitList 2 =====" + Environment.NewLine);
-            foreach (var item in cu2)
-            {
-                sb3.Append("  ComparisonUnit =====" + Environment.NewLine);
-                foreach (var cu in item.Contents)
+                sb3.Append("ComparisonUnitList 2 =====" + Environment.NewLine);
+                foreach (var item in cu2)
                 {
-                    sb3.Append(cu.ToString(4) + Environment.NewLine);
+                    sb3.Append("  ComparisonUnit =====" + Environment.NewLine);
+                    foreach (var cu in item.Contents)
+                    {
+                        sb3.Append(cu.ToString(4) + Environment.NewLine);
+                    }
                 }
+                var sbs3 = sb3.ToString();
+                Console.WriteLine(sbs3);
             }
-            var sbs3 = sb3.ToString();
-            Console.WriteLine(sbs3);
 
             var correlatedSequence = Lcs(cu1, cu2);
 
@@ -347,57 +368,63 @@ namespace OpenXmlPowerTools
                 }
             }
 
-            //var sb = new StringBuilder();
-            //foreach (var item in correlatedSequence)
-            //    sb.Append(item.ToString()).Append(Environment.NewLine);
-            //var sbs = sb.ToString();
-            //Console.WriteLine(sbs);
+            if (true)
+            {
+                var sb = new StringBuilder();
+                foreach (var item in correlatedSequence)
+                    sb.Append(item.ToString()).Append(Environment.NewLine);
+                var sbs = sb.ToString();
+                Console.WriteLine(sbs);
+            }
 
-            // the following gets a flattened list of SplitRuns, with status indicated in each SplitRun: Deleted, Inserted, or Equal
-            var listOfSplitRuns = correlatedSequence
+            // the following gets a flattened list of ContentAtoms, with status indicated in each ContentAtom: Deleted, Inserted, or Equal
+            var listOfContentAtoms = correlatedSequence
                 .Select(cs =>
                 {
                     if (cs.CorrelationStatus == CorrelationStatus.Equal)
                     {
-                        var splitRunList = cs
+                        var contentAtomList = cs
                             .ComparisonUnitArray2
                             .Select(cu => cu.Contents)
                             .SelectMany(m => m)
-                            .Select(sr => new SplitRun()
+                            .Select(ca => new ContentAtom()
                             {
-                                ContentAtom = sr.ContentAtom,
-                                AncestorElements = sr.AncestorElements,
+                                ContentElement = ca.ContentElement,
+                                AncestorElements = ca.AncestorElements,
                                 CorrelationStatus = CorrelationStatus.Equal,
+                                Part = ca.Part,
                             });
-                        return splitRunList;
+                        return contentAtomList;
                     }
                     if (cs.CorrelationStatus == CorrelationStatus.Deleted)
                     {
-                        var splitRunList = cs
+                        var contentAtomList = cs
                             .ComparisonUnitArray1
                             .Select(cu => cu.Contents)
                             .SelectMany(m => m)
-                            .Select(sr => new SplitRun()
+                            .Select(ca => new ContentAtom()
                             {
-                                ContentAtom = sr.ContentAtom,
-                                AncestorElements = sr.AncestorElements,
+                                ContentElement = ca.ContentElement,
+                                AncestorElements = ca.AncestorElements,
                                 CorrelationStatus = CorrelationStatus.Deleted,
+                                Part = ca.Part,
                             });
-                        return splitRunList;
+                        return contentAtomList;
                     }
                     else if (cs.CorrelationStatus == CorrelationStatus.Inserted)
                     {
-                        var splitRunList = cs
+                        var contentAtomList = cs
                             .ComparisonUnitArray2
                             .Select(cu => cu.Contents)
                             .SelectMany(m => m)
-                            .Select(sr => new SplitRun()
+                            .Select(ca => new ContentAtom()
                             {
-                                ContentAtom = sr.ContentAtom,
-                                AncestorElements = sr.AncestorElements,
+                                ContentElement = ca.ContentElement,
+                                AncestorElements = ca.AncestorElements,
                                 CorrelationStatus = CorrelationStatus.Inserted,
+                                Part = ca.Part,
                             });
-                        return splitRunList;
+                        return contentAtomList;
                     }
                     else
                     {
@@ -407,11 +434,14 @@ namespace OpenXmlPowerTools
                 .SelectMany(m => m)
                 .ToList();
 
-            var sb2 = new StringBuilder();
-            foreach (var item in listOfSplitRuns)
-                sb2.Append(item.ToString()).Append(Environment.NewLine);
-            var sbs2 = sb2.ToString();
-            Console.WriteLine(sbs2);
+            if (true)
+            {
+                var sb2 = new StringBuilder();
+                foreach (var item in listOfContentAtoms)
+                    sb2.Append(item.ToString()).Append(Environment.NewLine);
+                var sbs2 = sb2.ToString();
+                Console.WriteLine(sbs2);
+            }
 
             using (MemoryStream ms = new MemoryStream())
             {
@@ -426,13 +456,13 @@ namespace OpenXmlPowerTools
                         .ToList();
 
                     // ======================================
-                    // The following produces a new valid WordprocessingML document from the listOfSplitRuns
-                    XDocument newXDoc = ProduceNewXDocFromCorrelatedSequence(listOfSplitRuns, rootNamespaceAttributes);
+                    // The following produces a new valid WordprocessingML document from the listOfContentAtoms
+                    XDocument newXDoc1 = ProduceNewXDocFromCorrelatedSequence(wDoc.MainDocumentPart, listOfContentAtoms, rootNamespaceAttributes, settings);
 
                     // little bit of cleanup
-                    MoveLastSectPrToChildOfBody(newXDoc);
-                    XElement newRoot = (XElement)WordprocessingMLUtil.WmlOrderElementsPerStandard(newXDoc.Root);
-                    xDoc.Root.ReplaceWith(newRoot);
+                    MoveLastSectPrToChildOfBody(newXDoc1);
+                    XElement newXDoc2Root = (XElement)WordprocessingMLUtil.WmlOrderElementsPerStandard(newXDoc1.Root);
+                    xDoc.Root.ReplaceWith(newXDoc2Root);
 
                     var root = xDoc.Root;
                     if (root.Attribute(XNamespace.Xmlns + "pt14") == null)
@@ -460,6 +490,90 @@ namespace OpenXmlPowerTools
             }
         }
 
+#if false
+        // leaving this code here, bc will need variation on this code when counting revisions.
+        // not exactly, but close.  When counting revisions, need to coalesce adjacent revisions, with
+        // probably certain exceptions like boundaries of tables.
+
+        private static object CoalesceRunsInInsAndDel(XNode node)
+        {
+            XElement element = node as XElement;
+            if (element != null)
+            {
+                if (element.Elements().Any(c => c.Name == W.ins || c.Name == W.del))
+                {
+                    var groupedAdjacent = element
+                        .Elements()
+                        .GroupAdjacent(k =>
+                        {
+                            if (k.Name == W.ins || k.Name == W.del)
+                                return k.Name.LocalName;
+                            return "x";
+                        })
+                        .ToList();
+
+                    var childElements = groupedAdjacent
+                        .Select(g =>
+                        {
+                            if (g.Key == "x")
+                                return (object)g;
+                            // g.Key == "ins" || g.Key == "del"
+                            var insOrDelGrouped = g
+                                .GroupAdjacent(gc =>
+                                {
+                                    string key = "x";
+                                    if (gc.Elements().Count() == 1 && gc.Elements(W.r).Count() == 1)
+                                    {
+                                        var firstElementName = gc.Elements().First().Name;
+                                        key = firstElementName.LocalName + "|";
+                                        var rPr = gc.Elements().First().Element(W.rPr);
+                                        string rPrString = "";
+                                        if (rPr != null)
+                                            rPrString = rPr.ToString(SaveOptions.DisableFormatting);
+                                        key += rPrString;
+                                    }
+                                    return key;
+                                })
+                                .ToList();
+                            var newChildElements = insOrDelGrouped
+                                .Select(idg =>
+                                {
+                                    if (idg.Key == "x")
+                                        return (object)idg;
+                                    XElement newChildElement = null;
+                                    if (g.Key.StartsWith("ins"))
+                                        newChildElement = new XElement(W.ins,
+                                            g.First().Attributes());
+                                    else
+                                        newChildElement = new XElement(W.del,
+                                            g.First().Attributes());
+                                    var rPr = idg.Elements().Elements(W.rPr).FirstOrDefault();
+                                    var run = new XElement(W.r,
+                                        rPr,
+                                        g.Elements().Elements().Where(e => e.Name != W.rPr));
+                                    newChildElement.Add(run);
+                                    return newChildElement;
+                                })
+                                .ToList();
+                            return newChildElements;
+                        })
+                        .ToList();
+
+                    var newElement = new XElement(element.Name,
+                        new XAttribute(XNamespace.Xmlns + "w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"),
+                        element.Attributes(),
+                        childElements);
+                    return newElement;
+                }
+
+                return new XElement(element.Name,
+                    element.Attributes(),
+                    element.Nodes().Select(n => CoalesceRunsInInsAndDel(n)));
+            }
+            return node;
+        }
+#endif
+
         private static void MoveLastSectPrToChildOfBody(XDocument newXDoc)
         {
             var lastParaWithSectPr = newXDoc
@@ -476,25 +590,24 @@ namespace OpenXmlPowerTools
         }
 
         private static int s_MaxId = 0;
-        private static string s_Now = null;
 
-        // todo this needs to take other parts into account.
-        private static XDocument ProduceNewXDocFromCorrelatedSequence(IEnumerable<SplitRun> splitRuns, List<XAttribute> rootNamespaceDeclarations)
+        private static XDocument ProduceNewXDocFromCorrelatedSequence(OpenXmlPart part, IEnumerable<ContentAtom> contentAtomList, List<XAttribute> rootNamespaceDeclarations, WmlComparerSettings settings)
         {
             // fabricate new MainDocumentPart from correlatedSequence
 
-            //dump out split runs
-            var sb = new StringBuilder();
-            foreach (var item in splitRuns)
-                sb.Append(item.ToString()).Append(Environment.NewLine);
-            var sbs = sb.ToString();
-            Console.WriteLine(sbs);
-            //File.WriteAllText("foo.txt", sbs);
+            if (s_DumpLog)
+            {
+                //dump out content atoms
+                var sb = new StringBuilder();
+                foreach (var item in contentAtomList)
+                    sb.Append(item.ToString()).Append(Environment.NewLine);
+                var sbs = sb.ToString();
+                Console.WriteLine(sbs);
+            }
 
             s_MaxId = 0;
-            s_Now = DateTime.Now.ToString("o");
             XDocument newXDoc = new XDocument();
-            var newBodyChildren = CoalesceRecurse(splitRuns, 0);
+            var newBodyChildren = CoalesceRecurse(part, contentAtomList, 0, settings);
             newXDoc.Add(
                 new XElement(W.document,
                     rootNamespaceDeclarations,
@@ -523,102 +636,132 @@ namespace OpenXmlPowerTools
             return newXDoc;
         }
 
-        private static object CoalesceRecurse(IEnumerable<SplitRun> list, int level)
+        private static object CoalesceRecurse(OpenXmlPart part, IEnumerable<ContentAtom> list, int level, WmlComparerSettings settings)
         {
             var grouped = list
-                .GroupBy(sr =>
+                .GroupBy(ca =>
                 {
                     // per the algorithm, I don't think that the following condition will ever evaluate to true
-                    // for a table, we initially get all SplitRuns for the entire table, then process.  When processing a row,
-                    // no SplitRuns will have ancestors outside the row.  Ditto for cells, and on down the tree.
-                    if (level >= sr.AncestorElements.Length)
-                        throw new OpenXmlPowerToolsException("Internal error - why do we have SplitRun with fewer ancestors than its siblings?");
+                    // for a table, we initially get all ContentAtoms for the entire table, then process.  When processing a row,
+                    // no ContentAtoms will have ancestors outside the row.  Ditto for cells, and on down the tree.
+                    if (level >= ca.AncestorElements.Length)
+                        throw new OpenXmlPowerToolsException("Internal error 2 - why do we have ContentAtom objects with fewer ancestors than its siblings?");
 
                     // previously, instead of throwing, it returned a Guid to foce into their own group.
                     //return Guid.NewGuid().ToString().Replace("-", "");
 
-                    var unid = (string)sr.AncestorElements[level].Attribute(PtOpenXml.Unid);
+                    var unid = (string)ca.AncestorElements[level].Attribute(PtOpenXml.Unid);
                     return unid;
                 });
 
-            //var sb = new StringBuilder();
-            //foreach (var group in grouped)
-            //{
-            //    sb.AppendFormat("Group Key: {0}", group.Key);
-            //    sb.Append(Environment.NewLine);
-            //    foreach (var groupChildItem in group)
-            //    {
-            //        sb.Append("  ");
-            //        sb.Append(groupChildItem.ToString(0));
-            //        sb.Append(Environment.NewLine);
-            //    }
-            //    sb.Append(Environment.NewLine);
-            //}
+            if (s_DumpLog)
+            {
+                var sb = new StringBuilder();
+                foreach (var group in grouped)
+                {
+                    sb.AppendFormat("Group Key: {0}", group.Key);
+                    sb.Append(Environment.NewLine);
+                    foreach (var groupChildItem in group)
+                    {
+                        sb.Append("  ");
+                        sb.Append(groupChildItem.ToString(0));
+                        sb.Append(Environment.NewLine);
+                    }
+                    sb.Append(Environment.NewLine);
+                }
+            }
 
             var elementList = grouped
                 .Select(g =>
                 {
                     // see the comment above at the beginning of CoalesceRecurse
                     if (level >= g.First().AncestorElements.Length)
-                        throw new OpenXmlPowerToolsException("Internal error - why do we have SplitRun with fewer ancestors than its siblings?");
+                        throw new OpenXmlPowerToolsException("Internal error 1 - why do we have ContentAtom objects with fewer ancestors than its siblings?");
 
                     // previously, instead of throwing, it would return the content atom
-                    // return (object)(g.First().ContentAtom);
+                    // return (object)(g.First().ContentElement);
 
                     var ancestorBeingConstructed = g.First().AncestorElements[level];
 
                     if (ancestorBeingConstructed.Name == W.p)
                     {
                         var groupedChildren = g
-                            .GroupAdjacent(gc => gc.ContentAtom.Name.ToString() + " | " + gc.CorrelationStatus.ToString());
+                            .GroupAdjacent(gc => gc.ContentElement.Name.ToString() + " | " + gc.CorrelationStatus.ToString());
                         var newChildElements = groupedChildren
-                            .Where(gc => gc.First().ContentAtom.Name != W.pPr)
+                            .Where(gc => gc.First().ContentElement.Name != W.pPr)
                             .Select(gc =>
                             {
-                                return CoalesceRecurse(gc, level + 1);
+                                if (gc.First().ContentElement.Name == M.oMath ||
+                                    gc.First().ContentElement.Name == M.oMathPara)
+                                {
+                                    var deleting = g.First().CorrelationStatus == CorrelationStatus.Deleted;
+                                    var inserting = g.First().CorrelationStatus == CorrelationStatus.Inserted;
+
+                                    if (deleting)
+                                    {
+                                        return new XElement(W.del,
+                                            new XAttribute(W.author, settings.AuthorForRevisions),
+                                            new XAttribute(W.id, s_MaxId++),
+                                            new XAttribute(W.date, settings.DateTimeForRevisions),
+                                            gc.Select(gcc => gcc.ContentElement));
+                                    }
+                                    else if (inserting)
+                                    {
+                                        return new XElement(W.ins,
+                                            new XAttribute(W.author, settings.AuthorForRevisions),
+                                            new XAttribute(W.id, s_MaxId++),
+                                            new XAttribute(W.date, settings.DateTimeForRevisions),
+                                            gc.Select(gcc => gcc.ContentElement));
+                                    }
+                                    else
+                                    {
+                                        return gc.Select(gcc => gcc.ContentElement);
+                                    }
+                                }
+                                return CoalesceRecurse(part, gc, level + 1, settings);
                             });
 
                         XElement pPr = null;
-                        SplitRun pPrSplitRun = null;
+                        ContentAtom pPrContentAtom = null;
                         var newParaPropsGroup = groupedChildren
-                            .FirstOrDefault(gc => gc.First().ContentAtom.Name == W.pPr);
+                            .FirstOrDefault(gc => gc.First().ContentElement.Name == W.pPr);
                         if (newParaPropsGroup != null)
                         {
-                            pPrSplitRun = newParaPropsGroup.FirstOrDefault();
-                            if (pPrSplitRun != null)
+                            pPrContentAtom = newParaPropsGroup.FirstOrDefault();
+                            if (pPrContentAtom != null)
                             {
-                                pPr = new XElement(pPrSplitRun.ContentAtom); // clone so we can change it
-                                if (pPrSplitRun.CorrelationStatus == CorrelationStatus.Deleted)
+                                pPr = new XElement(pPrContentAtom.ContentElement); // clone so we can change it
+                                if (pPrContentAtom.CorrelationStatus == CorrelationStatus.Deleted)
                                     pPr.Elements(W.sectPr).Remove(); // for now, don't move sectPr from old document to new document.
                             }
                         }
-                        if (pPrSplitRun != null)
+                        if (pPrContentAtom != null)
                         {
                             if (pPr == null)
                                 pPr = new XElement(W.pPr);
-                            if (pPrSplitRun.CorrelationStatus == CorrelationStatus.Deleted)
+                            if (pPrContentAtom.CorrelationStatus == CorrelationStatus.Deleted)
                             {
                                 XElement rPr = pPr.Element(W.rPr);
                                 if (rPr == null)
                                     rPr = new XElement(W.rPr);
                                 rPr.Add(new XElement(W.del,
-                                    new XAttribute(W.author, "Open-Xml-PowerTools"),
+                                    new XAttribute(W.author, settings.AuthorForRevisions),
                                     new XAttribute(W.id, s_MaxId++),
-                                    new XAttribute(W.date, s_Now)));
+                                    new XAttribute(W.date, settings.DateTimeForRevisions)));
                                 if (pPr.Element(W.rPr) != null)
                                     pPr.Element(W.rPr).ReplaceWith(rPr);
                                 else
                                     pPr.AddFirst(rPr);
                             }
-                            else if (pPrSplitRun.CorrelationStatus == CorrelationStatus.Inserted)
+                            else if (pPrContentAtom.CorrelationStatus == CorrelationStatus.Inserted)
                             {
                                 XElement rPr = pPr.Element(W.rPr);
                                 if (rPr == null)
                                     rPr = new XElement(W.rPr);
                                 rPr.Add(new XElement(W.ins,
-                                    new XAttribute(W.author, "Open-Xml-PowerTools"),
+                                    new XAttribute(W.author, settings.AuthorForRevisions),
                                     new XAttribute(W.id, s_MaxId++),
-                                    new XAttribute(W.date, s_Now)));
+                                    new XAttribute(W.date, settings.DateTimeForRevisions)));
                                 if (pPr.Element(W.rPr) != null)
                                     pPr.Element(W.rPr).ReplaceWith(rPr);
                                 else
@@ -634,13 +777,13 @@ namespace OpenXmlPowerTools
                     if (ancestorBeingConstructed.Name == W.r)
                     {
                         var groupedChildren = g
-                            .GroupAdjacent(gc => gc.ContentAtom.Name.ToString() + " | " + gc.CorrelationStatus.ToString());
+                            .GroupAdjacent(gc => gc.ContentElement.Name.ToString() + " | " + gc.CorrelationStatus.ToString());
                         var newChildElements = groupedChildren
                             .Select(gc =>
                             {
-                                if (gc.First().ContentAtom.Name == W.t)
+                                if (gc.First().ContentElement.Name == W.t)
                                 {
-                                    var textOfTextElement = gc.Select(gce => gce.ContentAtom.Value).StringConcatenate();
+                                    var textOfTextElement = gc.Select(gce => gce.ContentElement.Value).StringConcatenate();
                                     var del = gc.First().CorrelationStatus == CorrelationStatus.Deleted;
                                     var ins = gc.First().CorrelationStatus == CorrelationStatus.Inserted;
                                     if (del)
@@ -653,7 +796,21 @@ namespace OpenXmlPowerTools
                                             textOfTextElement));
                                 }
                                 else
-                                    return gc.Select(gce => gce.ContentAtom);
+                                {
+                                    var openXmlPartOfDeletedContent = gc.First().Part;
+                                    var openXmlPartInNewDocument = part;
+                                    return gc.Select(gce =>
+                                        {
+                                            //var del = gce.CorrelationStatus == CorrelationStatus.Deleted;
+                                            //var ins = gce.CorrelationStatus == CorrelationStatus.Inserted;
+
+                                            Package packageOfDeletedContent = openXmlPartOfDeletedContent.OpenXmlPackage.Package;
+                                            Package packageOfNewContent = openXmlPartInNewDocument.OpenXmlPackage.Package;
+                                            PackagePart partInDeletedDocument = packageOfDeletedContent.GetPart(part.Uri);
+                                            PackagePart partInNewDocument = packageOfNewContent.GetPart(part.Uri);
+                                            return MoveDeletedPartsToDestination(partInDeletedDocument, partInNewDocument, gce.ContentElement);
+                                        });
+                                }
                             });
                         var runProps = ancestorBeingConstructed.Elements(W.rPr);
 
@@ -663,9 +820,9 @@ namespace OpenXmlPowerTools
                         if (deleting)
                         {
                             return new XElement(W.del,
-                                new XAttribute(W.author, "Open-Xml-PowerTools"),
+                                new XAttribute(W.author, settings.AuthorForRevisions),
                                 new XAttribute(W.id, s_MaxId++),
-                                new XAttribute(W.date, s_Now),
+                                new XAttribute(W.date, settings.DateTimeForRevisions),
                                 new XElement(W.r,
                                     runProps,
                                     newChildElements));
@@ -673,9 +830,9 @@ namespace OpenXmlPowerTools
                         else if (inserting)
                         {
                             return new XElement(W.ins,
-                                new XAttribute(W.author, "Open-Xml-PowerTools"),
+                                new XAttribute(W.author, settings.AuthorForRevisions),
                                 new XAttribute(W.id, s_MaxId++),
-                                new XAttribute(W.date, s_Now),
+                                new XAttribute(W.date, settings.DateTimeForRevisions),
                                 new XElement(W.r,
                                     runProps,
                                     newChildElements));
@@ -687,15 +844,15 @@ namespace OpenXmlPowerTools
                     }
 
                     if (ancestorBeingConstructed.Name == W.tbl)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.tblPr, W.tblGrid, level);
+                        return ReconstructElement(part, g, ancestorBeingConstructed, W.tblPr, W.tblGrid, level, settings);
                     if (ancestorBeingConstructed.Name == W.tr)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.trPr, null, level);
+                        return ReconstructElement(part, g, ancestorBeingConstructed, W.trPr, null, level, settings);
                     if (ancestorBeingConstructed.Name == W.tc)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.tcPr, null, level);
+                        return ReconstructElement(part, g, ancestorBeingConstructed, W.tcPr, null, level, settings);
                     if (ancestorBeingConstructed.Name == W.sdt)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.sdtPr, W.sdtEndPr, level);
+                        return ReconstructElement(part, g, ancestorBeingConstructed, W.sdtPr, W.sdtEndPr, level, settings);
                     if (ancestorBeingConstructed.Name == W.sdtContent)
-                        return ReconstructElement(g, ancestorBeingConstructed, null, null, level);
+                        return (object)ReconstructElement(part, g, ancestorBeingConstructed, null, null, level, settings);
 
                     throw new OpenXmlPowerToolsException("Internal error - unrecognized ancestor being constructed.");
                     // previously, did the following, but should not be required.
@@ -708,6 +865,137 @@ namespace OpenXmlPowerTools
             return elementList;
         }
 
+        private static object MoveDeletedPartsToDestination(PackagePart partOfDeletedContent, PackagePart partInNewDocument,
+            XElement contentElement)
+        {
+            var elementsToUpdate = contentElement
+                .Descendants()
+                .Where(d => d.Attributes().Any(a => ComparisonUnit.s_RelationshipAttributeNames.Contains(a.Name)))
+                .ToList();
+            foreach (var element in elementsToUpdate)
+            {
+                var attributesToUpdate = element
+                    .Attributes()
+                    .Where(a => ComparisonUnit.s_RelationshipAttributeNames.Contains(a.Name))
+                    .ToList();
+                foreach (var att in attributesToUpdate)
+                {
+                    var rId = (string)att;
+
+
+                    var relationshipForDeletedPart = partOfDeletedContent.GetRelationship(rId);
+                    if (relationshipForDeletedPart == null)
+                        throw new FileFormatException("Invalid document");
+
+                    Uri targetUri = PackUriHelper
+                        .ResolvePartUri(
+                           new Uri(partOfDeletedContent.Uri.ToString(), UriKind.Relative),
+                                 relationshipForDeletedPart.TargetUri);
+
+                    var relatedPackagePart = partOfDeletedContent.Package.GetPart(targetUri);
+                    var uriSplit = relatedPackagePart.Uri.ToString().Split('/');
+                    var last = uriSplit[uriSplit.Length - 1].Split('.');
+                    string uriString = null;
+                    if (last.Length == 2)
+                    {
+                        uriString = uriSplit.SkipLast(1).Select(p => p + "/").StringConcatenate() +
+                            "P" + Guid.NewGuid().ToString().Replace("-", "") + "." + last[1];
+                    }
+                    else
+                    {
+                        uriString = uriSplit.SkipLast(1).Select(p => p + "/").StringConcatenate() +
+                            "P" + Guid.NewGuid().ToString().Replace("-", "");
+                    }
+                    Uri uri = null;
+                    if (relatedPackagePart.Uri.IsAbsoluteUri)
+                        uri = new Uri(uriString, UriKind.Absolute);
+                    else
+                        uri = new Uri(uriString, UriKind.Relative);
+
+                    var newPart = partInNewDocument.Package.CreatePart(uri, relatedPackagePart.ContentType);
+                    using (var oldPartStream = relatedPackagePart.GetStream())
+                    using (var newPartStream = newPart.GetStream())
+                        FileUtils.CopyStream(oldPartStream, newPartStream);
+
+                    var newRid = "R" + Guid.NewGuid().ToString().Replace("-", "");
+                    partInNewDocument.CreateRelationship(newPart.Uri, TargetMode.Internal, relationshipForDeletedPart.RelationshipType, newRid);
+                    att.Value = newRid;
+
+                    if (newPart.ContentType.EndsWith("xml"))
+                    {
+                        XDocument newPartXDoc = null;
+                        using (var stream = newPart.GetStream())
+                        {
+                            newPartXDoc = XDocument.Load(stream);
+                            MoveDeletedPartsToDestination(relatedPackagePart, newPart, newPartXDoc.Root);
+                        }
+                        using (var stream = newPart.GetStream())
+                            newPartXDoc.Save(stream);
+                    }
+                }
+            }
+            return contentElement;
+        }
+#if false
+        private static object MoveDeletedPartToDestination(OpenXmlPart openXmlPartOfDeletedContent, OpenXmlPart openXmlPartInNewDocument,
+            XElement contentElement)
+        {
+            Package packageOfDeletedContent = openXmlPartOfDeletedContent.OpenXmlPackage.Package;
+            Package packageOfNewContent = openXmlPartInNewDocument.OpenXmlPackage.Package;
+            PackagePart partInNewDocument = packageOfNewContent.GetPart(openXmlPartInNewDocument.Uri);
+
+            var elementsToUpdate = contentElement
+                .Descendants()
+                .Where(d => d.Attributes().Any(a => ComparisonUnit.s_RelationshipAttributeNames.Contains(a.Name)))
+                .ToList();
+            foreach (var element in elementsToUpdate)
+            {
+                var attributesToUpdate = element
+                    .Attributes()
+                    .Where(a => ComparisonUnit.s_RelationshipAttributeNames.Contains(a.Name))
+                    .ToList();
+                foreach (var att in attributesToUpdate)
+                {
+                    var rId = (string)att;
+
+
+                    var relatedOpenXmlPart = openXmlPartOfDeletedContent.GetPartById(rId);
+                    if (relatedOpenXmlPart == null)
+                        throw new FileFormatException("Invalid document");
+                    var relatedPackagePart = packageOfDeletedContent.GetPart(relatedOpenXmlPart.Uri);
+                    var uriSplit = relatedOpenXmlPart.Uri.ToString().Split('/');
+                    var last = uriSplit[uriSplit.Length - 1].Split('.');
+                    string uriString = null;
+                    if (last.Length == 2)
+                    {
+                        uriString = uriSplit.SkipLast(1).Select(p => p + "/").StringConcatenate() +
+                            "P" + Guid.NewGuid().ToString().Replace("-", "") + "." + last[1];
+                    }
+                    else
+                    {
+                        uriString = uriSplit.SkipLast(1).Select(p => p + "/").StringConcatenate() +
+                            "P" + Guid.NewGuid().ToString().Replace("-", "");
+                    }
+                    Uri uri = null;
+                    if (relatedOpenXmlPart.Uri.IsAbsoluteUri)
+                        uri = new Uri(uriString, UriKind.Absolute);
+                    else
+                        uri = new Uri(uriString, UriKind.Relative);
+
+                    var newPart = packageOfNewContent.CreatePart(uri, relatedPackagePart.ContentType); // not correct, need to make URI unique
+                    using (var oldPartStream = relatedPackagePart.GetStream())
+                    using (var newPartStream = newPart.GetStream())
+                        FileUtils.CopyStream(oldPartStream, newPartStream);
+
+                    var newRid = "R" + Guid.NewGuid().ToString().Replace("-", "");
+                    partInNewDocument.CreateRelationship(newPart.Uri, TargetMode.Internal, relatedOpenXmlPart.RelationshipType, newRid);
+                    att.Value = newRid;
+                }
+            }
+            return contentElement;
+        }
+#endif
+
         private static XAttribute GetXmlSpaceAttribute(string textOfTextElement)
         {
             if (char.IsWhiteSpace(textOfTextElement[0]) ||
@@ -716,10 +1004,10 @@ namespace OpenXmlPowerTools
             return null;
         }
 
-        private static XElement ReconstructElement(IGrouping<string, SplitRun> g, XElement ancestorBeingConstructed, XName props1XName,
-            XName props2XName, int level)
+        private static XElement ReconstructElement(OpenXmlPart part, IGrouping<string, ContentAtom> g, XElement ancestorBeingConstructed, XName props1XName,
+            XName props2XName, int level, WmlComparerSettings settings)
         {
-            var newChildElements = CoalesceRecurse(g, level + 1);
+            var newChildElements = CoalesceRecurse(part, g, level + 1, settings);
             object props1 = null;
             if (props1XName != null)
                 props1 = ancestorBeingConstructed.Elements(props1XName);
@@ -745,13 +1033,14 @@ namespace OpenXmlPowerTools
                 cs
             };
 
-            //var sb = new StringBuilder();
-            //foreach (var item in csList)
-            //    sb.Append(item.ToString());
-            //var s = sb.ToString();
-            //Console.WriteLine(s);
-
-
+            if (s_DumpLog)
+            {
+                var sb = new StringBuilder();
+                foreach (var item in csList)
+                    sb.Append(item.ToString());
+                var s = sb.ToString();
+                Console.WriteLine(s);
+            }
             while (true)
             {
                 var unknown = csList
@@ -1087,11 +1376,11 @@ namespace OpenXmlPowerTools
             ParagraphUnit thisParagraphUnit = new ParagraphUnit();
             foreach (var item in comparisonUnit)
             {
-                if (item.Contents.First().ContentAtom.Name == W.pPr)
+                if (item.Contents.First().ContentElement.Name == W.pPr)
                 {
                     // note, the following RELIES on that the paragraph properties will only ever be in a group by themselves.
                     thisParagraphUnit.ComparisonUnits.Add(item);
-                    thisParagraphUnit.SHA1Hash = (string)item.Contents.First().ContentAtom.Attribute(PtOpenXml.SHA1Hash);
+                    thisParagraphUnit.SHA1Hash = (string)item.Contents.First().ContentElement.Attribute(PtOpenXml.SHA1Hash);
                     listParaUnit.Add(thisParagraphUnit);
                     thisParagraphUnit = new ParagraphUnit();
                     continue;
@@ -1154,18 +1443,27 @@ namespace OpenXmlPowerTools
             }
 
             // if all we match is a paragraph mark, then don't match.
-            if (currentLongestCommonSequenceLength == 1 && cul1[currentI1].Contents.First().ContentAtom.Name == W.pPr)
+            if (currentLongestCommonSequenceLength == 1 && cul1[currentI1].Contents.First().ContentElement.Name == W.pPr)
             {
                 currentLongestCommonSequenceLength = 0;
                 currentI1 = -1;
                 currentI2 = -1;
             }
 
+            // if the paragraph mark is at the beginning of a LCS, then it is possible that erroneously matching a paragraph
+            // mark that has been deleted.
+            if (currentLongestCommonSequenceLength > 1 && cul1[currentI1].Contents.First().ContentElement.Name == W.pPr)
+            {
+                currentLongestCommonSequenceLength--;
+                currentI1++;
+                currentI2++;
+            }
+
             // if the longest common subsequence starts with a space, and it is longer than 1, then don't include the space.
             if (currentI1 < cul1.Length && currentI1 != -1)
             {
-                var contentAtom = cul1[currentI1].Contents.First().ContentAtom;
-                if (currentLongestCommonSequenceLength > 1 && contentAtom.Name == W.t && char.IsWhiteSpace(contentAtom.Value[0]))
+                var contentElement = cul1[currentI1].Contents.First().ContentElement;
+                if (currentLongestCommonSequenceLength > 1 && contentElement.Name == W.t && char.IsWhiteSpace(contentElement.Value[0]))
                 {
                     currentI1++;
                     currentI2++;
@@ -1176,8 +1474,8 @@ namespace OpenXmlPowerTools
             // if the longest common subsequence is only a space, and it is only a single char long, then don't match
             if (currentLongestCommonSequenceLength == 1 && currentI1 < cul1.Length && currentI1 != -1)
             {
-                var contentAtom = cul1[currentI1].Contents.First().ContentAtom;
-                if (contentAtom.Name == W.t && char.IsWhiteSpace(contentAtom.Value[0]))
+                var contentElement = cul1[currentI1].Contents.First().ContentElement;
+                if (contentElement.Name == W.t && char.IsWhiteSpace(contentElement.Value[0]))
                 {
                     currentLongestCommonSequenceLength = 0;
                     currentI1 = -1;
@@ -1317,33 +1615,35 @@ namespace OpenXmlPowerTools
             W.sym,
             W.yearLong,
             W.yearShort,
+            M.oMathPara,
+            M.oMath,
         };
 
-        private static ComparisonUnit[] GetComparisonUnitList(SplitRunsAnnotation splitRunsAnnotation, WmlComparerSettings settings)
+        private static ComparisonUnit[] GetComparisonUnitList(ContentAtomListAnnotation contentAtomListAnnotation, WmlComparerSettings settings)
         {
-            var splitRuns = splitRunsAnnotation.SplitRuns;
-            var groupingKey = splitRuns
+            var contentAtomList = contentAtomListAnnotation.ContentAtomList;
+            var groupingKey = contentAtomList
                 .Select((sr, i) =>
                 {
                     string key = null;
-                    if (sr.ContentAtom.Name == W.t)
+                    if (sr.ContentElement.Name == W.t)
                     {
-                        string chr = sr.ContentAtom.Value;
+                        string chr = sr.ContentElement.Value;
                         var ch = chr[0];
                         if (ch == '.' || ch == ',')
                         {
                             bool beforeIsDigit = false;
                             if (i > 0)
                             {
-                                var prev = splitRuns[i - 1];
-                                if (prev.ContentAtom.Name == W.t && char.IsDigit(prev.ContentAtom.Value[0]))
+                                var prev = contentAtomList[i - 1];
+                                if (prev.ContentElement.Name == W.t && char.IsDigit(prev.ContentElement.Value[0]))
                                     beforeIsDigit = true;
                             }
                             bool afterIsDigit = false;
-                            if (i < splitRuns.Length - 1)
+                            if (i < contentAtomList.Length - 1)
                             {
-                                var next = splitRuns[i + 1];
-                                if (next.ContentAtom.Name == W.t && char.IsDigit(next.ContentAtom.Value[0]))
+                                var next = contentAtomList[i + 1];
+                                if (next.ContentElement.Name == W.t && char.IsDigit(next.ContentElement.Value[0]))
                                     afterIsDigit = true;
                             }
                             if (beforeIsDigit || afterIsDigit)
@@ -1372,7 +1672,7 @@ namespace OpenXmlPowerTools
                             key += ancestorsKey;
                         }
                     }
-                    else if (WordBreakElements.Contains(sr.ContentAtom.Name))
+                    else if (WordBreakElements.Contains(sr.ContentElement.Name))
                     {
                         key = i.ToString();
                     }
@@ -1389,67 +1689,86 @@ namespace OpenXmlPowerTools
                     return new
                     {
                         Key = key,
-                        SplitRunMember = sr
+                        ContentAtomMember = sr
                     };
                 });
 
-            //var sb = new StringBuilder();
-            //foreach (var item in groupingKey)
-            //{
-            //    sb.Append(item.Key + Environment.NewLine);
-            //    sb.Append("    " + item.SplitRunMember.ToString(0) + Environment.NewLine);
-            //}
-            //var sbs = sb.ToString();
-            //Console.WriteLine(sbs);
-
+            if (s_DumpLog)
+            {
+                var sb = new StringBuilder();
+                foreach (var item in groupingKey)
+                {
+                    sb.Append(item.Key + Environment.NewLine);
+                    sb.Append("    " + item.ContentAtomMember.ToString(0) + Environment.NewLine);
+                }
+                var sbs = sb.ToString();
+                Console.WriteLine(sbs);
+            }
             var groupedByWords = groupingKey
                 .GroupAdjacent(gc => gc.Key);
 
-            //var sb = new StringBuilder();
-            //foreach (var group in groupedByWords)
-            //{
-            //    sb.Append("Group ===== " + group.Key + Environment.NewLine);
-            //    foreach (var gc in group)
-            //    {
-            //        sb.Append("    " + gc.SplitRunMember.ToString(0) + Environment.NewLine);
-            //    }
-            //}
-            //var sbs = sb.ToString();
-            //Console.WriteLine(sbs);
+            if (s_DumpLog)
+            {
+                var sb = new StringBuilder();
+                foreach (var group in groupedByWords)
+                {
+                    sb.Append("Group ===== " + group.Key + Environment.NewLine);
+                    foreach (var gc in group)
+                    {
+                        sb.Append("    " + gc.ContentAtomMember.ToString(0) + Environment.NewLine);
+                    }
+                }
+                var sbs = sb.ToString();
+                Console.WriteLine(sbs);
+            }
 
             ComparisonUnit[] cul = groupedByWords
-                .Select(g => new ComparisonUnit(g.Select(gc => gc.SplitRunMember)))
+                .Select(g => new ComparisonUnit(g.Select(gc => gc.ContentAtomMember)))
                 .ToArray();
 
-            //var sb = new StringBuilder();
-            //foreach (var group in cul)
-            //{
-            //    sb.Append("Group ===== " + Environment.NewLine);
-            //    foreach (var gc in group.Contents)
-            //    {
-            //        sb.Append("    " + gc.ToString(0) + Environment.NewLine);
-            //    }
-            //}
-            //var sbs = sb.ToString();
-            //Console.WriteLine(sbs);
-
+            if (s_DumpLog)
+            {
+                var sb = new StringBuilder();
+                foreach (var group in cul)
+                {
+                    sb.Append("Group ===== " + Environment.NewLine);
+                    foreach (var gc in group.Contents)
+                    {
+                        sb.Append("    " + gc.ToString(0) + Environment.NewLine);
+                    }
+                }
+                var sbs = sb.ToString();
+                Console.WriteLine(sbs);
+            }
             return cul;
         }
     }
 
     internal class ComparisonUnit : IEquatable<ComparisonUnit>
     {
-        public List<SplitRun> Contents;
-        public ComparisonUnit(IEnumerable<SplitRun> splitRuns)
+        public List<ContentAtom> Contents;
+        public ComparisonUnit(IEnumerable<ContentAtom> contentAtomList)
         {
-            Contents = splitRuns.ToList();
+            Contents = contentAtomList.ToList();
         }
+
+        public static XName[] s_RelationshipAttributeNames = new XName[] {
+            R.embed,
+            R.link,
+            R.id,
+            R.cs,
+            R.dm,
+            R.lo,
+            R.qs,
+            R.href,
+            R.pict,
+        };
 
         public string ToString(int indent)
         {
             var sb = new StringBuilder();
-            foreach (var splitRun in Contents)
-                sb.Append(splitRun.ToString(indent) + Environment.NewLine);
+            foreach (var contentAtom in Contents)
+                sb.Append(contentAtom.ToString(indent) + Environment.NewLine);
             return sb.ToString();
         }
 
@@ -1487,28 +1806,28 @@ namespace OpenXmlPowerTools
             if (other == null)
                 return false;
 
-            if (this.Contents.Any(c => c.ContentAtom.Name == W.t) ||
-                other.Contents.Any(c => c.ContentAtom.Name == W.t))
+            if (this.Contents.Any(c => c.ContentElement.Name == W.t) ||
+                other.Contents.Any(c => c.ContentElement.Name == W.t))
             {
                 var txt1 = this
                     .Contents
-                    .Where(c => c.ContentAtom.Name == W.t)
-                    .Select(c => c.ContentAtom.Value)
+                    .Where(c => c.ContentElement.Name == W.t)
+                    .Select(c => c.ContentElement.Value)
                     .StringConcatenate();
                 var txt2 = other
                     .Contents
-                    .Where(c => c.ContentAtom.Name == W.t)
-                    .Select(c => c.ContentAtom.Value)
+                    .Where(c => c.ContentElement.Name == W.t)
+                    .Select(c => c.ContentElement.Value)
                     .StringConcatenate();
                 if (txt1 != txt2)
                     return false;
 
                 var seq1 = this
                     .Contents
-                    .Where(c => ! s_ElementsToIgnoreWhenComparing.Contains(c.ContentAtom.Name));
+                    .Where(c => ! s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
                 var seq2 = other
                     .Contents
-                    .Where(c => ! s_ElementsToIgnoreWhenComparing.Contains(c.ContentAtom.Name));
+                    .Where(c => ! s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
                 if (seq1.Count() != seq2.Count())
                     return false;
                 var zipped = seq1.Zip(seq2, (s1, s2) => new
@@ -1530,41 +1849,13 @@ namespace OpenXmlPowerTools
             {
                 var seq1 = this
                     .Contents
-                    .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentAtom.Name));
-                var seq2 = this
+                    .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
+                var seq2 = other
                     .Contents
-                    .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentAtom.Name));
+                    .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
                 if (seq1.Count() != seq2.Count())
                     return false;
                 
-                // if a paragraph mark is immediately before a table, then it should only match another paragraph mark immediately before a table.
-                //var pPr1 = seq1.FirstOrDefault(s => s.ContentAtom.Name == W.pPr);
-                //var pPr2 = seq2.FirstOrDefault(s => s.ContentAtom.Name == W.pPr);
-                //if (pPr1 != null && pPr2 != null)
-                //{
-                //    if (seq1.Count() != 1 && seq2.Count() != 1)
-                //        throw new OpenXmlPowerToolsException("Internal error");
-
-                //    var pPr1IsBeforeTable = pPr1
-                //        .ContentAtom
-                //        .Ancestors(W.p)
-                //        .First()
-                //        .ElementsAfterSelf()
-                //        .Where(eas => eas.Name == W.tbl || eas.Name == W.p)
-                //        .FirstOrDefault(eas => eas.Name == W.tbl) != null;
-                //    var pPr2IsBeforeTable = pPr2
-                //        .ContentAtom
-                //        .Ancestors(W.p)
-                //        .First()
-                //        .ElementsAfterSelf()
-                //        .Where(eas => eas.Name == W.tbl || eas.Name == W.p)
-                //        .FirstOrDefault(eas => eas.Name == W.tbl) != null;
-                //    if (pPr1IsBeforeTable && !pPr2IsBeforeTable)
-                //        return false;
-                //    if (!pPr1IsBeforeTable && pPr2IsBeforeTable)
-                //        return false;
-                //}
-
                 var zipped = seq1.Zip(seq2, (s1, s2) => new
                 {
                     Cu1 = s1,
@@ -1572,11 +1863,72 @@ namespace OpenXmlPowerTools
                 });
                 var anyNotEqual = (zipped.Any(z =>
                 {
-                    if (z.Cu1.ContentAtom.Name != z.Cu2.ContentAtom.Name)
-                        return false;
+                    if (z.Cu1.ContentElement.Name != z.Cu2.ContentElement.Name)
+                        return true;
                     var a1 = z.Cu1.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
                     var a2 = z.Cu2.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-                    return a1 != a2;
+                    if (a1 != a2)
+                        return true;
+                    var name = z.Cu1.ContentElement.Name;
+                    if (name == M.oMath || name == M.oMathPara)
+                    {
+                        var equ = XNode.DeepEquals(z.Cu1.ContentElement, z.Cu2.ContentElement);
+                        return !equ;
+                    }
+                    if (name == W.drawing)
+                    {
+                        var relationshipIds1 = z.Cu1.ContentElement
+                            .Descendants()
+                            .Attributes()
+                            .Where(a => s_RelationshipAttributeNames.Contains(a.Name))
+                            .Select(a => (string)a)
+                            .ToList();
+                        var relationshipIds2 = z.Cu2.ContentElement
+                            .Descendants()
+                            .Attributes()
+                            .Where(a => s_RelationshipAttributeNames.Contains(a.Name))
+                            .Select(a => (string)a)
+                            .ToList();
+                        if (relationshipIds1.Count() != relationshipIds2.Count())
+                            return true;
+                        var sourcePart1 = this.Contents.First().Part;
+                        var sourcePart2 = other.Contents.First().Part;
+                        var zipped2 = relationshipIds1.Zip(relationshipIds2, (rid1, rid2) =>
+                            {
+                                return new
+                                {
+                                    RelId1 = rid1,
+                                    RelId2 = rid2,
+                                };
+                            });
+                        foreach (var pair in zipped2)
+                        {
+                            var oxp1 = sourcePart1.GetPartById(pair.RelId1);
+                            if (oxp1 == null)
+                                throw new FileFormatException("Invalid WordprocessingML Document");
+                            var oxp2 = sourcePart2.GetPartById(pair.RelId2);
+                            if (oxp2 == null)
+                                throw new FileFormatException("Invalid WordprocessingML Document");
+                            byte[] buffer1 = new byte[1024];
+                            byte[] buffer2 = new byte[1024];
+                            using (var str1 = oxp1.GetStream())
+                            using (var str2 = oxp2.GetStream())
+                            {
+                                var ret1 = str1.Read(buffer1, 0, buffer1.Length);
+                                var ret2 = str2.Read(buffer2, 0, buffer2.Length);
+                                if (ret1 == 0 && ret2 == 0)
+                                    continue;
+                                if (ret1 != ret2)
+                                    return true;
+                                for (int i = 0; i < buffer1.Length; i++)
+                                    if (buffer1[i] != buffer2[i])
+                                        return true;
+                                continue;
+                            }
+                        }
+                        return false;
+                    }
+                    return false;
                 }));
                 if (anyNotEqual)
                     return false;

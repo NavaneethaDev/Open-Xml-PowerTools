@@ -83,6 +83,19 @@ namespace OxPt
         [InlineData("WC009-Table-Unmodified.docx", "WC009-Table-Cell-1-1-Mod.docx")]
         [InlineData("WC010-Para-Before-Table-Unmodified.docx", "WC010-Para-Before-Table-Mod.docx")]
         [InlineData("WC011-Before.docx", "WC011-After.docx")]
+        [InlineData("WC012-Math-Before.docx", "WC012-Math-After.docx")]
+        [InlineData("WC013-Image-Before.docx", "WC013-Image-After.docx")]
+        [InlineData("WC013-Image-Before.docx", "WC013-Image-After2.docx")]
+        [InlineData("WC013-Image-Before2.docx", "WC013-Image-After2.docx")]
+        [InlineData("WC014-SmartArt-Before.docx", "WC014-SmartArt-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx", "WC014-SmartArt-With-Image-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx", "WC014-SmartArt-With-Image-Deleted-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx", "WC014-SmartArt-With-Image-Deleted-After2.docx")]
+        [InlineData("WC015-Three-Paragraphs.docx", "WC015-Three-Paragraphs-After.docx")]
+        [InlineData("WC016-Para-Image-Para.docx", "WC016-Para-Image-Para-w-Deleted-Image.docx")]
+        [InlineData("WC017-Image.docx", "WC017-Image-After.docx")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
 
         public void WC001_Compare(string name1, string name2)
         {
