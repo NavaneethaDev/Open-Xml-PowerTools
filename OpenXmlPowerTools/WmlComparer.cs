@@ -655,14 +655,11 @@ namespace OpenXmlPowerTools
             var grouped = list
                 .GroupBy(ca =>
                 {
-                    // per the algorithm, I don't think that the following condition will ever evaluate to true
-                    // for a table, we initially get all ContentAtoms for the entire table, then process.  When processing a row,
-                    // no ContentAtoms will have ancestors outside the row.  Ditto for cells, and on down the tree.
+                    // per the algorithm, The following condition will never evaluate to true
+                    // if it evaluates to true, then the basic mechanism for breaking a hierarchical structure into flat and back is broken.
+
                     if (level >= ca.AncestorElements.Length)
                         throw new OpenXmlPowerToolsException("Internal error 2 - why do we have ContentAtom objects with fewer ancestors than its siblings?");
-
-                    // previously, instead of throwing, it returned a Guid to foce into their own group.
-                    //return Guid.NewGuid().ToString().Replace("-", "");
 
                     var unid = (string)ca.AncestorElements[level].Attribute(PtOpenXml.Unid);
                     return unid;
@@ -691,9 +688,6 @@ namespace OpenXmlPowerTools
                     // see the comment above at the beginning of CoalesceRecurse
                     if (level >= g.First().AncestorElements.Length)
                         throw new OpenXmlPowerToolsException("Internal error 1 - why do we have ContentAtom objects with fewer ancestors than its siblings?");
-
-                    // previously, instead of throwing, it would return the content atom
-                    // return (object)(g.First().ContentElement);
 
                     var ancestorBeingConstructed = g.First().AncestorElements[level];
 

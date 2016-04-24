@@ -46,7 +46,27 @@ namespace OpenXmlPowerTools
                 new XAttribute(XNamespace.Xmlns + "w", W.w.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "pt14", PtOpenXml.pt.NamespaceName),
                 new XElement(W.body, newBodyChildren)));
+
+            // little bit of cleanup
+            MoveLastSectPrToChildOfBody(newXDoc);
+            XElement newXDoc2Root = (XElement)WordprocessingMLUtil.WmlOrderElementsPerStandard(newXDoc.Root);
+            newXDoc.Root.ReplaceWith(newXDoc2Root);
             return newXDoc;
+        }
+
+        private static void MoveLastSectPrToChildOfBody(XDocument newXDoc)
+        {
+            var lastParaWithSectPr = newXDoc
+                .Root
+                .Elements(W.body)
+                .Elements(W.p)
+                .Where(p => p.Elements(W.pPr).Elements(W.sectPr).Any())
+                .LastOrDefault();
+            if (lastParaWithSectPr != null)
+            {
+                newXDoc.Root.Element(W.body).Add(lastParaWithSectPr.Elements(W.pPr).Elements(W.sectPr));
+                lastParaWithSectPr.Elements(W.pPr).Elements(W.sectPr).Remove();
+            }
         }
 
         private static object CoalesceRecurse(IEnumerable<ContentAtom> list, int level)
@@ -54,8 +74,14 @@ namespace OpenXmlPowerTools
             var grouped = list
                 .GroupBy(sr =>
                 {
+                    // per the algorithm, The following condition will never evaluate to true
+                    // if it evaluates to true, then the basic mechanism for breaking a hierarchical structure into flat and back is broken.
+
+                    // for a table, we initially get all ContentAtoms for the entire table, then process.  When processing a row,
+                    // no ContentAtoms will have ancestors outside the row.  Ditto for cells, and on down the tree.
                     if (level >= sr.AncestorElements.Length)
-                        return Guid.NewGuid().ToString().Replace("-", "");
+                        throw new OpenXmlPowerToolsException("Internal error 4 - why do we have ContentAtom objects with fewer ancestors than its siblings?");
+
                     var unid = (string)sr.AncestorElements[level].Attribute(PtOpenXml.Unid);
                     return unid;
                 });
@@ -81,8 +107,10 @@ namespace OpenXmlPowerTools
             var elementList = grouped
                 .Select(g =>
                 {
+                    // see the comment above at the beginning of CoalesceRecurse
                     if (level >= g.First().AncestorElements.Length)
-                        return (object)(g.First().ContentElement);
+                        throw new OpenXmlPowerToolsException("Internal error 3 - why do we have ContentAtom objects with fewer ancestors than its siblings?");
+
                     var ancestorBeingConstructed = g.First().AncestorElements[level];
 
                     if (ancestorBeingConstructed.Name == W.p)
@@ -113,7 +141,9 @@ namespace OpenXmlPowerTools
                                 if (gc.First().ContentElement.Name == W.t)
                                 {
                                     var textOfTextElement = gc.Select(gce => gce.ContentElement.Value).StringConcatenate();
-                                    return (object)(new XElement(W.t, textOfTextElement));
+                                    return (object)(new XElement(W.t,
+                                        GetXmlSpaceAttribute(textOfTextElement),
+                                        textOfTextElement));
                                 }
                                 else
                                     return gc.Select(gce => gce.ContentElement);
@@ -123,31 +153,37 @@ namespace OpenXmlPowerTools
                     }
 
                     if (ancestorBeingConstructed.Name == W.tbl)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.tblPr, W.tblGrid);
+                        return ReconstructElement(g, ancestorBeingConstructed, W.tblPr, W.tblGrid, level);
                     if (ancestorBeingConstructed.Name == W.tr)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.trPr, null);
+                        return ReconstructElement(g, ancestorBeingConstructed, W.trPr, null, level);
                     if (ancestorBeingConstructed.Name == W.tc)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.tcPr, null);
+                        return ReconstructElement(g, ancestorBeingConstructed, W.tcPr, null, level);
                     if (ancestorBeingConstructed.Name == W.sdt)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.sdtPr, W.sdtEndPr);
+                        return ReconstructElement(g, ancestorBeingConstructed, W.sdtPr, W.sdtEndPr, level);
                     if (ancestorBeingConstructed.Name == W.sdtContent)
-                        return ReconstructElement(g, ancestorBeingConstructed, null, null);
+                        return ReconstructElement(g, ancestorBeingConstructed, null, null, level);
 
                     var newElement = new XElement(ancestorBeingConstructed.Name,
                         ancestorBeingConstructed.Attributes(),
                         CoalesceRecurse(g, level + 1));
                     return newElement;
-                });
+                })
+                .ToList();
             return elementList;
         }
 
-        private static XElement ReconstructElement(IGrouping<string, ContentAtom> g, XElement ancestorBeingConstructed, XName props1XName,
-            XName props2XName)
+        private static XAttribute GetXmlSpaceAttribute(string textOfTextElement)
         {
-            var groupedChildren = g
-                .GroupAdjacent(gc => gc.ContentElement.Name.ToString());
-            var newChildElements = groupedChildren
-                .Select(gc => gc.Select(gce => gce.ContentElement));
+            if (char.IsWhiteSpace(textOfTextElement[0]) ||
+                char.IsWhiteSpace(textOfTextElement[textOfTextElement.Length - 1]))
+                return new XAttribute(XNamespace.Xml + "space", "preserve");
+            return null;
+        }
+
+        private static XElement ReconstructElement(IGrouping<string, ContentAtom> g, XElement ancestorBeingConstructed, XName props1XName,
+            XName props2XName, int level)
+        {
+            var newChildElements = CoalesceRecurse(g, level + 1);
             object props1 = null;
             if (props1XName != null)
                 props1 = ancestorBeingConstructed.Elements(props1XName);
@@ -155,7 +191,8 @@ namespace OpenXmlPowerTools
             if (props2XName != null)
                 props2 = ancestorBeingConstructed.Elements(props2XName);
 
-            return new XElement(W.r, props1, props2, newChildElements);
+            var reconstructedElement = new XElement(ancestorBeingConstructed.Name, props1, props2, newChildElements);
+            return reconstructedElement;
         }
 
         private static void MoveLastSectPrIntoLastParagraph(OpenXmlPart part)
@@ -213,7 +250,6 @@ namespace OpenXmlPowerTools
         private static XName[] AllowableRunChildren = new XName[] {
             W.br,
             W.drawing,
-            W.continuationSeparator,
             W.cr,
             W.dayLong,
             W.dayShort,
@@ -226,20 +262,20 @@ namespace OpenXmlPowerTools
             W._object,
             W.pgNum,
             W.ptab,
-            W.separator,
             W.softHyphen,
             W.sym,
             W.tab,
             W.yearLong,
             W.yearShort,
+            M.oMathPara,
+            M.oMath,
             W.fldChar,
             W.instrText,
-            W.bookmarkStart,
-            W.bookmarkEnd,
-            M.oMathPara,
         };
 
         private static XName[] ElementsToThrowAway = new XName[] {
+            W.bookmarkStart,
+            W.bookmarkEnd,
             W.lastRenderedPageBreak,
             W.proofErr,
             W.tblPr,
@@ -482,8 +518,16 @@ namespace OpenXmlPowerTools
         public string DumpContentAtomListAnnotation(int indent)
         {
             StringBuilder sb = new StringBuilder();
-            foreach (var item in ContentAtomList)
-                sb.Append(item.ToString(indent) + Environment.NewLine);
+            var cal = ContentAtomList
+                .Select((ca, i) => new
+                {
+                    ContentAtom = ca,
+                    Index = i,
+                });
+            foreach (var item in cal)
+                sb.Append("".PadRight(indent))
+                  .AppendFormat("[{0:000000}] ", item.Index + 1)
+                  .Append(item.ContentAtom.ToString(0) + Environment.NewLine);
             return sb.ToString();
         }
 

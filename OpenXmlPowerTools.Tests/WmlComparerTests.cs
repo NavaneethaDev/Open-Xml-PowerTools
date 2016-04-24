@@ -61,7 +61,7 @@ namespace OxPt
         };
 
         [Theory]
-        [InlineData("SR001-Plain.docx", "SR001-Plain-Mod.docx")]
+        [InlineData("CA001-Plain.docx", "CA001-Plain-Mod.docx")]
         [InlineData("WC001-Digits.docx", "WC001-Digits-Mod.docx")]
         [InlineData("WC001-Digits.docx", "WC001-Digits-Deleted-Paragraph.docx")]
         [InlineData("WC001-Digits-Deleted-Paragraph.docx", "WC001-Digits.docx")]
