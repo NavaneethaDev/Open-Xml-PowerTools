@@ -44,18 +44,30 @@ namespace OxPt
         [InlineData("CA006-ContentControl.docx", 60)]
         [InlineData("CA007-DayLong.docx", 10)]
         [InlineData("CA008-Footnote-Reference.docx", 23)]
-
+        [InlineData("CA010-Delete-Run.docx", 16)]
+        [InlineData("CA011-Insert-Run.docx", 16)]
+        [InlineData("CA012-fldSimple.docx", 10)]
+        [InlineData("CA013-Lots-of-Stuff.docx", 168)]
+        [InlineData("CA014-Complex-Table.docx", 193)]
+        [InlineData("WC024-Table-Before.docx", 0)]
+        [InlineData("WC024-Table-After2.docx", 0)]
+        //[InlineData("", 0)]
+        //[InlineData("", 0)]
+        //[InlineData("", 0)]
+        //[InlineData("", 0)]
+        
         public void CA001_ContentAtoms(string name, int contentAtomCount)
         {
             FileInfo sourceDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name));
 
-            var sourceCopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-1-Source.docx")));
+            var thisGuid = Guid.NewGuid().ToString().Replace("-", "");
+            var sourceCopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", string.Format("-{0}-1-Source.docx", thisGuid))));
             File.Copy(sourceDocx.FullName, sourceCopiedToDestDocx.FullName);
 
-            var coalescedDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-2-Coalesced.docx")));
+            var coalescedDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", string.Format("-{0}-2-Coalesced.docx", thisGuid))));
             File.Copy(sourceDocx.FullName, coalescedDocx.FullName);
 
-            var contentAtomDataFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-3-ContentAtomData.txt")));
+            var contentAtomDataFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", string.Format("-{0}-3-ContentAtomData.txt", thisGuid))));
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(coalescedDocx.FullName, true))
             {
@@ -108,14 +120,12 @@ namespace OxPt
         }
 
         [Theory]
-        [InlineData("CA001-Plain.docx")]
-        [InlineData("CA002-Bookmark.docx")]
-        [InlineData("CA003-Numbered-List.docx")]
-        [InlineData("CA004-TwoParas.docx")]
-        [InlineData("CA005-Table.docx")]
-        [InlineData("CA006-ContentControl.docx")]
-        
-        public void CA003_ContentAtoms(string name)
+        [InlineData("CA009-altChunk.docx")]
+        //[InlineData("")]
+        //[InlineData("")]
+        //[InlineData("")]
+
+        public void CA003_ContentAtoms_Throws(string name)
         {
             FileInfo sourceDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name));
             var thisGuid = Guid.NewGuid().ToString().Replace("-", "");
@@ -129,24 +139,10 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(coalescedDocx.FullName, true))
             {
-                WmlContentAtomList.CreateContentAtomList(wDoc, wDoc.MainDocumentPart);
-                StringBuilder sb = new StringBuilder();
-                foreach (var part in wDoc.ContentParts())
+                Assert.Throws<NotSupportedException>(() =>
                 {
-                    var spa = part.Annotation<ContentAtomListAnnotation>();
-                    if (spa == null)
-                        throw new OpenXmlPowerToolsException("Internal error, annotation does not exist");
-
-                    sb.AppendFormat("Part: {0}", part.Uri.ToString());
-                    sb.Append(Environment.NewLine);
-                    sb.Append(spa.DumpContentAtomListAnnotation(2));
-                    sb.Append(Environment.NewLine);
-
-                    XDocument newMainXDoc = WmlContentAtomList.Coalesce(spa);
-                    var partXDoc = wDoc.MainDocumentPart.GetXDocument();
-                    partXDoc.Root.ReplaceWith(newMainXDoc.Root);
-                }
-                File.WriteAllText(contentAtomDataFi.FullName, sb.ToString());
+                    WmlContentAtomList.CreateContentAtomList(wDoc, wDoc.MainDocumentPart);
+                });
             }
         }
     }
