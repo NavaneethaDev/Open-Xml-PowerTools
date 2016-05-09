@@ -18,6 +18,10 @@ Email: eric@ericwhite.com
 
 ***************************************************************************/
 
+/*
+ * ptab is not adequately tested.
+ */
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -31,11 +35,154 @@ namespace OpenXmlPowerTools
     {
         public static bool s_DumpLog = false;
 
+        private static XName[] AllowableRunChildren = new XName[] {
+            W.br,
+            W.drawing,
+            W.cr,
+            W.dayLong,
+            W.dayShort,
+            W.endnoteRef,
+            W.footnoteRef,
+            W.footnoteReference,
+            W.monthLong,
+            W.monthShort,
+            W.noBreakHyphen,
+            W._object,
+            W.pgNum,
+            W.ptab,
+            W.softHyphen,
+            W.sym,
+            W.tab,
+            W.yearLong,
+            W.yearShort,
+            M.oMathPara,
+            M.oMath,
+            W.fldChar,
+            W.instrText,
+        };
+
+        private static XName[] ElementsToThrowAway = new XName[] {
+            W.bookmarkStart,
+            W.bookmarkEnd,
+            W.commentRangeStart,
+            W.commentRangeEnd,
+            W.lastRenderedPageBreak,
+            W.proofErr,
+            W.tblPr,
+            W.sectPr,
+            W.permEnd,
+            W.permStart,
+        };
+
+        private static XName[] ElementsToHaveUnid = new XName[]
+        {
+            W.p,
+            W.r,
+            W.tbl,
+            W.tr,
+            W.tc,
+            W.fldSimple,
+            W.hyperlink,
+            W.sdt,
+            W.smartTag,
+        };
+
+        private static XName[] InvalidElements = new XName[]
+        {
+            W.altChunk,
+            W.customXml,
+            W.customXmlDelRangeEnd,
+            W.customXmlDelRangeStart,
+            W.customXmlInsRangeEnd,
+            W.customXmlInsRangeStart,
+            W.customXmlMoveFromRangeEnd,
+            W.customXmlMoveFromRangeStart,
+            W.customXmlMoveToRangeEnd,
+            W.customXmlMoveToRangeStart,
+            W.moveFrom,
+            W.moveFromRangeStart,
+            W.moveFromRangeEnd,
+            W.moveTo,
+            W.moveToRangeStart,
+            W.moveToRangeEnd,
+            W.subDoc,
+        };
+
+        private class RecursionInfo
+        {
+            public XName ElementName;
+            public XName[] ChildElementPropertyNames;
+        }
+
+        private static RecursionInfo[] RecursionElements = new RecursionInfo[]
+        {
+            new RecursionInfo()
+            {
+                ElementName = W.del,
+                ChildElementPropertyNames = null,
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.ins,
+                ChildElementPropertyNames = null,
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.tbl,
+                ChildElementPropertyNames = new[] { W.tblPr, W.tblGrid, W.tblPrEx },
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.tr,
+                ChildElementPropertyNames = new[] { W.trPr, W.tblPrEx },
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.tc,
+                ChildElementPropertyNames = new[] { W.tcPr, W.tblPrEx },
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.sdt,
+                ChildElementPropertyNames = new[] { W.sdtPr, W.sdtEndPr },
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.sdtContent,
+                ChildElementPropertyNames = null,
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.hyperlink,
+                ChildElementPropertyNames = null,
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.fldSimple,
+                ChildElementPropertyNames = null,
+            },
+            new RecursionInfo()
+            {
+                ElementName = W.smartTag,
+                ChildElementPropertyNames = new[] { W.smartTagPr },
+            },
+        };
+
         public static void CreateContentAtomList(WordprocessingDocument wDoc, OpenXmlPart part)
         {
+            VerifyNoInvalidContent(part);
             AssignIdToAllElements(part);  // add the Guid id to every element for which we need to establish identity
             MoveLastSectPrIntoLastParagraph(part);
             AnnotatePartWithContentAtomListAnnotation(part); // adds the list of ContentAtom objects as an annotation to the part
+        }
+
+        private static void VerifyNoInvalidContent(OpenXmlPart part)
+        {
+            var xDoc = part.GetXDocument();
+            var invalidElement = xDoc.Descendants().FirstOrDefault(d => InvalidElements.Contains(d.Name));
+            if (invalidElement == null)
+                return;
+            throw new NotSupportedException("Document contains " + invalidElement.Name.LocalName);
         }
 
         internal static XDocument Coalesce(ContentAtomListAnnotation contentAtomListAnnotation)
@@ -138,10 +285,11 @@ namespace OpenXmlPowerTools
                         var newChildElements = groupedChildren
                             .Select(gc =>
                             {
-                                if (gc.First().ContentElement.Name == W.t)
+                                var name = gc.First().ContentElement.Name;
+                                if (name == W.t || name == W.delText)
                                 {
                                     var textOfTextElement = gc.Select(gce => gce.ContentElement.Value).StringConcatenate();
-                                    return (object)(new XElement(W.t,
+                                    return (object)(new XElement(name,
                                         GetXmlSpaceAttribute(textOfTextElement),
                                         textOfTextElement));
                                 }
@@ -152,16 +300,11 @@ namespace OpenXmlPowerTools
                         return new XElement(W.r, runProps, newChildElements);
                     }
 
-                    if (ancestorBeingConstructed.Name == W.tbl)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.tblPr, W.tblGrid, level);
-                    if (ancestorBeingConstructed.Name == W.tr)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.trPr, null, level);
-                    if (ancestorBeingConstructed.Name == W.tc)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.tcPr, null, level);
-                    if (ancestorBeingConstructed.Name == W.sdt)
-                        return ReconstructElement(g, ancestorBeingConstructed, W.sdtPr, W.sdtEndPr, level);
-                    if (ancestorBeingConstructed.Name == W.sdtContent)
-                        return ReconstructElement(g, ancestorBeingConstructed, null, null, level);
+                    var re = RecursionElements.FirstOrDefault(z => z.ElementName == ancestorBeingConstructed.Name);
+                    if (re != null)
+                    {
+                        return ReconstructElement(g, ancestorBeingConstructed, re.ChildElementPropertyNames, level);
+                    }
 
                     var newElement = new XElement(ancestorBeingConstructed.Name,
                         ancestorBeingConstructed.Attributes(),
@@ -180,18 +323,15 @@ namespace OpenXmlPowerTools
             return null;
         }
 
-        private static XElement ReconstructElement(IGrouping<string, ContentAtom> g, XElement ancestorBeingConstructed, XName props1XName,
-            XName props2XName, int level)
+        private static XElement ReconstructElement(IGrouping<string, ContentAtom> g, XElement ancestorBeingConstructed, XName[] childPropElementNames, int level)
         {
             var newChildElements = CoalesceRecurse(g, level + 1);
-            object props1 = null;
-            if (props1XName != null)
-                props1 = ancestorBeingConstructed.Elements(props1XName);
-            object props2 = null;
-            if (props2XName != null)
-                props2 = ancestorBeingConstructed.Elements(props2XName);
+            IEnumerable<XElement> childProps = null;
+            if (childPropElementNames != null)
+                childProps = ancestorBeingConstructed.Elements()
+                    .Where(a => childPropElementNames.Contains(a.Name));
 
-            var reconstructedElement = new XElement(ancestorBeingConstructed.Name, props1, props2, newChildElements);
+            var reconstructedElement = new XElement(ancestorBeingConstructed.Name, childProps, newChildElements);
             return reconstructedElement;
         }
 
@@ -246,42 +386,6 @@ namespace OpenXmlPowerTools
             part.AddAnnotation(contentAtomListAnnotation);
         }
 
-        // note that if we were to support comments, this would change
-        private static XName[] AllowableRunChildren = new XName[] {
-            W.br,
-            W.drawing,
-            W.cr,
-            W.dayLong,
-            W.dayShort,
-            W.endnoteRef,
-            W.footnoteRef,
-            W.footnoteReference,
-            W.monthLong,
-            W.monthShort,
-            W.noBreakHyphen,
-            W._object,
-            W.pgNum,
-            W.ptab,
-            W.softHyphen,
-            W.sym,
-            W.tab,
-            W.yearLong,
-            W.yearShort,
-            M.oMathPara,
-            M.oMath,
-            W.fldChar,
-            W.instrText,
-        };
-
-        private static XName[] ElementsToThrowAway = new XName[] {
-            W.bookmarkStart,
-            W.bookmarkEnd,
-            W.lastRenderedPageBreak,
-            W.proofErr,
-            W.tblPr,
-            W.sectPr,
-        };
-
         private static void AnnotateWithContentAtomListRecurse(OpenXmlPart part, XElement element, List<ContentAtom> contentAtomList)
         {
             if (element.Name == W.body)
@@ -305,6 +409,7 @@ namespace OpenXmlPowerTools
                     pPrContentAtom.ContentElement = new XElement(W.pPr);
                     pPrContentAtom.Part = part;
                     pPrContentAtom.AncestorElements = element.AncestorsAndSelf().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
+                    pPrContentAtom.CorrelationStatus = GetCorrelationStatusFromAncestors(pPrContentAtom.AncestorElements);
                     contentAtomList.Add(pPrContentAtom);
                 }
                 else
@@ -313,6 +418,7 @@ namespace OpenXmlPowerTools
                     pPrContentAtom.ContentElement = paraProps;
                     pPrContentAtom.Part = part;
                     pPrContentAtom.AncestorElements = element.AncestorsAndSelf().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
+                    pPrContentAtom.CorrelationStatus = GetCorrelationStatusFromAncestors(pPrContentAtom.AncestorElements);
                     contentAtomList.Add(pPrContentAtom);
                 }
                 return;
@@ -328,15 +434,16 @@ namespace OpenXmlPowerTools
                 return;
             }
 
-            if (element.Name == W.t)
+            if (element.Name == W.t || element.Name == W.delText)
             {
                 var val = element.Value;
                 foreach (var ch in val)
                 {
                     var sr = new ContentAtom();
-                    sr.ContentElement = new XElement(W.t, ch);
+                    sr.ContentElement = new XElement(element.Name, ch);
                     sr.Part = part;
                     sr.AncestorElements = element.Ancestors().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
+                    sr.CorrelationStatus = GetCorrelationStatusFromAncestors(sr.AncestorElements);
                     contentAtomList.Add(sr);
                 }
                 return;
@@ -348,43 +455,16 @@ namespace OpenXmlPowerTools
                 sr3.ContentElement = element;
                 sr3.Part = part;
                 sr3.AncestorElements = element.Ancestors().TakeWhile(a => a.Name != W.body).Reverse().ToArray();
+                sr3.CorrelationStatus = GetCorrelationStatusFromAncestors(sr3.AncestorElements);
                 contentAtomList.Add(sr3);
                 return;
             }
 
-            if (element.Name == W.tbl)
+            // todo use recursioninfo array here
+            var re = RecursionElements.FirstOrDefault(z => z.ElementName == element.Name);
+            if (re != null)
             {
-                AnnotateElementWithProps(part, element, contentAtomList, W.tblPr, W.tblGrid, W.tblPrEx);
-                return;
-            }
-
-            if (element.Name == W.tr)
-            {
-                AnnotateElementWithProps(part, element, contentAtomList, W.trPr, W.tblPrEx, null);
-                return;
-            }
-
-            if (element.Name == W.tc)
-            {
-                AnnotateElementWithProps(part, element, contentAtomList, W.tcPr, W.tblPrEx, null);
-                return;
-            }
-
-            if (element.Name == W.sdt)
-            {
-                AnnotateElementWithProps(part, element, contentAtomList, W.sdtPr, null, null);
-                return;
-            }
-
-            if (element.Name == W.sdtContent)
-            {
-                AnnotateElementWithProps(part, element, contentAtomList, null, null, null);
-                return;
-            }
-
-            if (element.Name == W.hyperlink)
-            {
-                AnnotateElementWithProps(part, element, contentAtomList, null, null, null);
+                AnnotateElementWithProps(part, element, contentAtomList, re.ChildElementPropertyNames);
                 return;
             }
 
@@ -394,29 +474,31 @@ namespace OpenXmlPowerTools
             throw new OpenXmlPowerToolsException("Internal error - unexpected element");
         }
 
-        private static void AnnotateElementWithProps(OpenXmlPart part, XElement element, List<ContentAtom> contentAtomList, XName props1XName, XName props2XName, XName props3XName)
+        private static CorrelationStatus GetCorrelationStatusFromAncestors(XElement[] ancestors)
         {
-            var runChildrenToProcess = element
-                .Elements()
-                .Where(e => e.Name != props1XName &&
-                            e.Name != props2XName &&
-                            e.Name != props3XName);
+            var deleted = ancestors.Any(a => a.Name == W.del);
+            var inserted = ancestors.Any(a => a.Name == W.ins);
+            if (deleted)
+                return CorrelationStatus.Deleted;
+            else if (inserted)
+                return CorrelationStatus.Inserted;
+            else
+                return CorrelationStatus.Normal;
+        }
+
+        private static void AnnotateElementWithProps(OpenXmlPart part, XElement element, List<ContentAtom> contentAtomList, XName[] childElementPropertyNames)
+        {
+            IEnumerable<XElement> runChildrenToProcess = null;
+            if (childElementPropertyNames == null)
+                runChildrenToProcess = element.Elements();
+            else
+                runChildrenToProcess = element
+                    .Elements()
+                    .Where(e => !childElementPropertyNames.Contains(e.Name));
+
             foreach (var item in runChildrenToProcess)
                 AnnotateWithContentAtomListRecurse(part, item, contentAtomList);
         }
-
-        private static XName[] ElementsToHaveUnid = new XName[]
-        {
-            W.p,
-            W.r,
-            W.tbl,
-            W.tr,
-            W.tc,
-            W.fldSimple,
-            W.hyperlink,
-            W.sdt,
-            W.smartTag,
-        };
 
         private static void AssignIdToAllElements(OpenXmlPart part)
         {
@@ -472,8 +554,8 @@ namespace OpenXmlPowerTools
             sb.Append(indentString);
             string correlationStatus = "";
             if (CorrelationStatus != OpenXmlPowerTools.CorrelationStatus.Nil)
-                correlationStatus = string.Format("({0}) ", CorrelationStatus.ToString().PadRight(8));
-            if (ContentElement.Name == W.t)
+                correlationStatus = string.Format("[{0}] ", CorrelationStatus.ToString().PadRight(8));
+            if (ContentElement.Name == W.t || ContentElement.Name == W.delText)
             {
                 sb.AppendFormat("{0}: {1} {2}", PadLocalName(xNamePad, this), ContentElement.Value, correlationStatus);
                 AppendAncestorsDump(sb, this);
