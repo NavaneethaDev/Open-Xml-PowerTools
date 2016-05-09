@@ -76,6 +76,7 @@ namespace OxPt
         [InlineData("WC002-DeleteInMiddle.docx", "WC002-Unmodified.docx")]
         [InlineData("WC004-Large.docx", "WC004-Large-Mod.docx")]
         [InlineData("WC006-Table.docx", "WC006-Table-Delete-Row.docx")]
+        [InlineData("WC006-Table-Delete-Row.docx", "WC006-Table.docx")]
         [InlineData("WC006-Table.docx", "WC006-Table-Delete-Contests-of-Row.docx")]
         [InlineData("WC007-Unmodified.docx", "WC007-Longest-At-End.docx")]
         [InlineData("WC007-Unmodified.docx", "WC007-Deleted-at-Beginning-of-Para.docx")]
