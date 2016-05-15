@@ -107,7 +107,9 @@ namespace OxPt
         [InlineData("WC024-Table-Before.docx", "WC024-Table-After.docx")]
         [InlineData("WC024-Table-Before.docx", "WC024-Table-After2.docx")]
         [InlineData("WC025-Simple-Table-Before.docx", "WC025-Simple-Table-After.docx")]
-        //[InlineData("", "")]
+        [InlineData("WC026-Long-Table-Before.docx", "WC026-Long-Table-After-1.docx")]
+        [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-1.docx")]
+        [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-2.docx")]
         //[InlineData("", "")]
         //[InlineData("", "")]
 
@@ -223,7 +225,6 @@ namespace OxPt
         [InlineData("WC021-Math-Before-1.docx")]
         [InlineData("WC022-Image-Math-Para-After.docx")]
         [InlineData("WC022-Image-Math-Para-Before.docx")]
-        //[InlineData("", "")]
         //[InlineData("", "")]
         //[InlineData("", "")]
         //[InlineData("", "")]

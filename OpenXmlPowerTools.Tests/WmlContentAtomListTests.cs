@@ -55,6 +55,8 @@ namespace OxPt
         //[InlineData("", 0)]
         //[InlineData("", 0)]
         //[InlineData("", 0)]
+            // todo needs rewritten
+
         
         public void CA001_ContentAtoms(string name, int contentAtomCount)
         {
@@ -71,26 +73,23 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(coalescedDocx.FullName, true))
             {
-                WmlContentAtomList.CreateContentAtomList(wDoc, wDoc.MainDocumentPart);
+                List<ComparisonUnitAtom> contentAtomList = WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart);
                 StringBuilder sb = new StringBuilder();
                 var part = wDoc.MainDocumentPart;
-                var cala = part.Annotation<ContentAtomListAnnotation>();
-                if (cala == null)
-                    throw new OpenXmlPowerToolsException("Internal error, annotation does not exist");
 
                 sb.AppendFormat("Part: {0}", part.Uri.ToString());
                 sb.Append(Environment.NewLine);
-                sb.Append(cala.DumpContentAtomListAnnotation(2));
+                sb.Append(ComparisonUnit.ComparisonUnitListToString(contentAtomList.ToArray()) + Environment.NewLine);
                 sb.Append(Environment.NewLine);
 
-                XDocument newMainXDoc = WmlContentAtomList.Coalesce(cala);
+                XDocument newMainXDoc = WmlComparer.Coalesce(contentAtomList);
                 var partXDoc = wDoc.MainDocumentPart.GetXDocument();
                 partXDoc.Root.ReplaceWith(newMainXDoc.Root);
                 wDoc.MainDocumentPart.PutXDocument();
 
                 File.WriteAllText(contentAtomDataFi.FullName, sb.ToString());
 
-                Assert.Equal(contentAtomCount, cala.ContentAtomList.Length);
+                Assert.Equal(contentAtomCount, contentAtomList.Count());
             }
         }
 
@@ -109,7 +108,7 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(annotatedDocx.FullName, true))
             {
-                WmlContentAtomList.CreateContentAtomList(wDoc, wDoc.MainDocumentPart);
+                WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart);
             }
             //var assembledFormattingDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-2-FormattingAssembled.docx")));
             //CopyFormattingAssembledDocx(sourceDocx, assembledFormattingDestDocx);
@@ -141,7 +140,7 @@ namespace OxPt
             {
                 Assert.Throws<NotSupportedException>(() =>
                 {
-                    WmlContentAtomList.CreateContentAtomList(wDoc, wDoc.MainDocumentPart);
+                    WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart);
                 });
             }
         }
