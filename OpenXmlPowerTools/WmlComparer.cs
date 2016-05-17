@@ -344,23 +344,6 @@ namespace OpenXmlPowerTools
                 CorrelatedSequence cs = new CorrelatedSequence();
                 cs.CorrelationStatus = CorrelationStatus.Equal;
 
-#if false
-                cs.ComparisonUnitArray1 = unknown
-                    .ComparisonUnitArray2
-                    .Take(countCommonAtBeginning)
-                    .Select(cu =>
-                    {
-                        var cug = cu as ComparisonUnitGroup;
-                        if (cug != null)
-                            return cug.Contents;
-                        var cuw = cu as ComparisonUnitWord;
-                        if (cuw != null)
-                            return cug.Contents;
-                        throw new OpenXmlPowerToolsException("Internal error");
-                    })
-                    .SelectMany(m => m)
-                    .ToArray();
-#endif
                 cs.ComparisonUnitArray1 = unknown
                     .ComparisonUnitArray2
                     .Take(countCommonAtBeginning)
@@ -416,33 +399,12 @@ namespace OpenXmlPowerTools
                     .ComparisonUnitArray2
                     .Skip(countCommonAtBeginning + middleRight.Length)
                     .ToArray();
-#if false
-                cs.ComparisonUnitArray1 = unknown
-                    .ComparisonUnitArray2
-                    .Skip(countCommonAtBeginning + middleRight.Length)
-                    .Select(cu =>
-                    {
-                        var cug = cu as ComparisonUnitGroup;
-                        if (cug != null)
-                            return cug.Contents;
-                        var cuw = cu as ComparisonUnitWord;
-                        if (cuw != null)
-                            return cuw.Contents;
-                        throw new OpenXmlPowerToolsException("Internal error");
-                    })
-                    .SelectMany(m => m)
-                    .ToArray();
-#endif
 
                 cs.ComparisonUnitArray2 = cs.ComparisonUnitArray1;
                 newSequence.Add(cs);
             }
             return newSequence;
         }
-
-        /****************************************************************************************************************************************/
-        // Good rewrite up to here
-        /****************************************************************************************************************************************/
 
         private static WmlDocument ApplyChanges(ComparisonUnit[] cu1, ComparisonUnit[] cu2, WmlDocument wmlResult,
             WmlComparerSettings settings)
@@ -461,239 +423,135 @@ namespace OpenXmlPowerTools
 
             var correlatedSequence = Lcs(cu1, cu2);
 
-            if (true)
+            if (s_DumpLog)
             {
                 var sb = new StringBuilder();
                 foreach (var item in correlatedSequence)
                     sb.Append(item.ToString()).Append(Environment.NewLine);
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
+                //TestUtil.NotePad(sbs);
             }
 
             // for any deleted or inserted rows, we go into the w:trPr properties, and add the appropriate w:ins or w:del element, and therefore
             // when generating the document, the appropriate row will be marked as deleted or inserted.
 
-            // todo this code needs rewritten
-
             foreach (var dcs in correlatedSequence.Where(cs =>
-                cs.CorrelationStatus == CorrelationStatus.Deleted ||
-                cs.CorrelationStatus == CorrelationStatus.Inserted))
+                cs.CorrelationStatus == CorrelationStatus.Deleted || cs.CorrelationStatus == CorrelationStatus.Inserted))
             {
-                ComparisonUnitGroup cug = null;
+                // iterate through all deleted/inserted items in dcs.ComparisonUnitArray1/ComparisonUnitArray2
+                var toIterateThrough = dcs.ComparisonUnitArray1;
+                if (dcs.CorrelationStatus == CorrelationStatus.Inserted)
+                    toIterateThrough = dcs.ComparisonUnitArray2;
 
-                if (dcs.CorrelationStatus == CorrelationStatus.Deleted)
+                foreach (var ca in toIterateThrough)
                 {
-                    if (dcs.ComparisonUnitArray1.Length < 1)
-                        throw new OpenXmlPowerToolsException("Internal error");
-                    cug = dcs.ComparisonUnitArray1[0] as ComparisonUnitGroup;
-                }
-                else if (dcs.CorrelationStatus == CorrelationStatus.Inserted)
-                {
-                    if (dcs.ComparisonUnitArray2.Length < 1)
-                        throw new OpenXmlPowerToolsException("Internal error");
-                    cug = dcs.ComparisonUnitArray2[0] as ComparisonUnitGroup;
-                }
-                if (cug == null)
-                    continue;
+                    var cug = ca as ComparisonUnitGroup;
+                    
+                    // this works because we will never see a table in this list, only rows.  If tables were in this list, would need to recursively
+                    // go into children, but tables are always flattened in the LCS process.
 
-                if (dcs.CorrelationStatus == CorrelationStatus.Deleted)
-                {
-                    if (dcs.ComparisonUnitArray1.Length != 1)
-                        throw new OpenXmlPowerToolsException("Internal error");
-                }
-                else if (dcs.CorrelationStatus == CorrelationStatus.Inserted)
-                {
-                    if (dcs.ComparisonUnitArray2.Length != 1)
-                        throw new OpenXmlPowerToolsException("Internal error");
-                }
+                    // when we have a row, it is only necessary to find the first content atom of the row, then find the row ancestor, and then tweak
+                    // the w:rPr
 
-                var firstCell = cug.Contents.FirstOrDefault() as ComparisonUnitGroup;
-                if (firstCell == null || firstCell.ComparisonUnitGroupType != ComparisonUnitGroupType.Cell)
-                    throw new OpenXmlPowerToolsException("Internal error");
-
-                // todo what to do here for nested tables?
-
-                var firstComparisonUnitAtom = ComparisonUnitGroup.GetFirstComparisonUnitAtomOfGroup(firstCell);
-                if (firstComparisonUnitAtom != null)
-                {
-                    var tr = firstComparisonUnitAtom.AncestorElements.Reverse().FirstOrDefault(a => a.Name == W.tr);
-                    if (tr == null)
-                        throw new OpenXmlPowerToolsException("Internal error");
-                    var trPr = tr.Element(W.trPr);
-                    if (trPr == null)
+                    if (cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Row)
                     {
-                        trPr = new XElement(W.trPr);
-                        tr.AddFirst(trPr);
+                        var firstContentAtom = cug.DescendantContentAtoms().FirstOrDefault();
+                        if (firstContentAtom == null)
+                            throw new OpenXmlPowerToolsException("Internal error");
+                        var tr = firstContentAtom
+                            .AncestorElements
+                            .Reverse()
+                            .FirstOrDefault(a => a.Name == W.tr);
+
+                        if (tr == null)
+                            throw new OpenXmlPowerToolsException("Internal error");
+                        var trPr = tr.Element(W.trPr);
+                        if (trPr == null)
+                        {
+                            trPr = new XElement(W.trPr);
+                            tr.AddFirst(trPr);
+                        }
+                        XName revTrackElementName = null;
+                        if (dcs.CorrelationStatus == CorrelationStatus.Deleted)
+                            revTrackElementName = W.del;
+                        else if (dcs.CorrelationStatus == CorrelationStatus.Inserted)
+                            revTrackElementName = W.ins;
+                        trPr.Add(new XElement(revTrackElementName,
+                            new XAttribute(W.author, settings.AuthorForRevisions),
+                            new XAttribute(W.id, s_MaxId++),
+                            new XAttribute(W.date, settings.DateTimeForRevisions)));
                     }
-                    XName revTrackElementName = null;
-                    if (dcs.CorrelationStatus == CorrelationStatus.Deleted)
-                        revTrackElementName = W.del;
-                    else if (dcs.CorrelationStatus == CorrelationStatus.Inserted)
-                        revTrackElementName = W.ins;
-                    trPr.Add(new XElement(revTrackElementName,
-                        new XAttribute(W.author, settings.AuthorForRevisions),
-                        new XAttribute(W.id, s_MaxId++),
-                        new XAttribute(W.date, settings.DateTimeForRevisions)));
                 }
             }
 
             // the following gets a flattened list of ComparisonUnitAtoms, with status indicated in each ComparisonUnitAtom: Deleted, Inserted, or Equal
 
-            //var listOfComparisonUnitAtoms = correlatedSequence
-            //    .Select(cs =>
-            //    {
-            //        if (cs.CorrelationStatus == CorrelationStatus.Equal)
-            //        {
-            //            var ComparisonUnitAtomList = cs
-            //                .ComparisonUnitArray2
-            //                .OfType<ComparisonUnitWord>()
-            //                .Select(ca => new ComparisonUnitAtom()
-            //                {
-            //                    ContentElement = ca.ContentElement,
-            //                    AncestorElements = ca.AncestorElements,
-            //                    CorrelationStatus = CorrelationStatus.Equal,
-            //                    Part = ca.Part,
-            //                });
-            //            return ComparisonUnitAtomList;
-            //        }
-            //        if (cs.CorrelationStatus == CorrelationStatus.Deleted)
-            //        {
-            //            var isGroup = cs
-            //                .ComparisonUnitArray1
-            //                .OfType<ComparisonUnitGroup>()
-            //                .FirstOrDefault() != null;
+            var listOfComparisonUnitAtoms = correlatedSequence
+                .Select(cs =>
+                {
+                    if (cs.CorrelationStatus == CorrelationStatus.Equal)
+                    {
+                        var comparisonUnitAtomList = cs
+                            .ComparisonUnitArray2
+                            .Select(ca => ca.DescendantContentAtoms())
+                            .SelectMany(m => m)
+                            .Select(ca =>
+                                new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part)
+                                {
+                                    CorrelationStatus = CorrelationStatus.Equal,
+                                });
+                        return comparisonUnitAtomList;
+                    }
+                    else if (cs.CorrelationStatus == CorrelationStatus.Deleted)
+                    {
+                        var comparisonUnitAtomList = cs
+                            .ComparisonUnitArray1
+                            .Select(ca => ca.DescendantContentAtoms())
+                            .SelectMany(m => m)
+                            .Select(ca =>
+                                new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part)
+                                {
+                                    CorrelationStatus = CorrelationStatus.Deleted,
+                                });
+                        return comparisonUnitAtomList;
+                    }
+                    else if (cs.CorrelationStatus == CorrelationStatus.Inserted)
+                    {
+                        var comparisonUnitAtomList = cs
+                            .ComparisonUnitArray1
+                            .Select(ca => ca.DescendantContentAtoms())
+                            .SelectMany(m => m)
+                            .Select(ca =>
+                                new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part)
+                                {
+                                    CorrelationStatus = CorrelationStatus.Inserted,
+                                });
+                        return comparisonUnitAtomList;
+                    }
+                    else
+                        throw new OpenXmlPowerToolsException("Internal error");
+                })
+                .SelectMany(m => m)
+                .ToList();
 
-            //            if (isGroup)
-            //            {
-            //                var rows = cs
-            //                    .ComparisonUnitArray1
-            //                    .OfType<ComparisonUnitGroup>();
-
-            //                var cells = rows
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .OfType<ComparisonUnitGroup>();
-
-            //                var comparisonUnitWords = cells
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .OfType<ComparisonUnitWord>();
-
-            //                var ComparisonUnitAtomList = comparisonUnitWords
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .Select(ca => new ComparisonUnitAtom()
-            //                    {
-            //                        ContentElement = ca.ContentElement,
-            //                        AncestorElements = ca.AncestorElements,
-            //                        CorrelationStatus = CorrelationStatus.Deleted,
-            //                        Part = ca.Part,
-            //                    });
-            //                return ComparisonUnitAtomList;
-            //            }
-            //            else
-            //            {
-            //                var ComparisonUnitAtomList = cs
-            //                    .ComparisonUnitArray1
-            //                    .OfType<ComparisonUnitWord>()
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .Select(ca => new ComparisonUnitAtom()
-            //                    {
-            //                        ContentElement = ca.ContentElement,
-            //                        AncestorElements = ca.AncestorElements,
-            //                        CorrelationStatus = CorrelationStatus.Deleted,
-            //                        Part = ca.Part,
-            //                    });
-            //                return ComparisonUnitAtomList;
-            //            }
-            //        }
-            //        else if (cs.CorrelationStatus == CorrelationStatus.Inserted)
-            //        {
-            //            var isGroup = cs
-            //                .ComparisonUnitArray2
-            //                .OfType<ComparisonUnitGroup>()
-            //                .FirstOrDefault() != null;
-
-            //            if (isGroup)
-            //            {
-            //                var rows = cs
-            //                    .ComparisonUnitArray2
-            //                    .OfType<ComparisonUnitGroup>();
-
-            //                var cells = rows
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .OfType<ComparisonUnitGroup>();
-
-            //                var comparisonUnitWords = cells
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .OfType<ComparisonUnitWord>();
-
-            //                var ComparisonUnitAtomList = comparisonUnitWords
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .Select(ca => new ComparisonUnitAtom()
-            //                    {
-            //                        ContentElement = ca.ContentElement,
-            //                        AncestorElements = ca.AncestorElements,
-            //                        CorrelationStatus = CorrelationStatus.Inserted,
-            //                        Part = ca.Part,
-            //                    });
-            //                return ComparisonUnitAtomList;
-            //            }
-            //            else
-            //            {
-            //                var ComparisonUnitAtomList = cs
-            //                    .ComparisonUnitArray2
-            //                    .OfType<ComparisonUnitWord>()
-            //                    .Select(cu => cu.Contents)
-            //                    .SelectMany(m => m)
-            //                    .Select(ca => new ComparisonUnitAtom()
-            //                    {
-            //                        ContentElement = ca.ContentElement,
-            //                        AncestorElements = ca.AncestorElements,
-            //                        CorrelationStatus = CorrelationStatus.Inserted,
-            //                        Part = ca.Part,
-            //                    });
-            //                return ComparisonUnitAtomList;
-            //            }
-            //        }
-            //        else
-            //        {
-            //            throw new OpenXmlPowerToolsException("Internal error - should have no unknown correlated sequences at this point.");
-            //        }
-            //    })
-            //    .SelectMany(m => m)
-            //    .ToList();
-
-            //// todo rewrite this
-
-            //if (s_DumpLog)
-            //{
-            //    var sb2 = new StringBuilder();
-            //    foreach (var item in listOfComparisonUnitAtoms)
-            //        sb2.Append(item.ToString()).Append(Environment.NewLine);
-            //    var sbs2 = sb2.ToString();
-            //    Console.WriteLine(sbs2);
-            //}
-
+            if (true)
+            {
+                var sb = new StringBuilder();
+                foreach (var item in listOfComparisonUnitAtoms)
+                    sb.Append(item.ToString()).Append(Environment.NewLine);
+                var sbs = sb.ToString();
+                //TestUtil.NotePad(sbs);
+            }
 
             // hack = set the guid ID of the table, row, or cell from the 'before' document to be equal to the 'after' document.
 
             // note - we don't want to do the hack until after flattening all of the groups.  At the end of the flattening, we should simply
             // have a list of ComparisonUnitAtoms, appropriately marked as equal, inserted, or deleted.
 
-            // at this point, the only groups we have are inserted and deleted rows, so not necessary to hack table and row ids for them.
             // the table id will be hacked in the normal course of events.
             // in the case where a row is deleted, not necessary to hack - the deleted row ID will do.
             // in the case where a row is inserted, not necessary to hack - the inserted row ID will do as well.
 
-            // therefore, I believe that the following algorithm continues to work properly, after the refactoring to include groups for
-            // deleted / inserted rows in the correlated sequence.
-
-#if false
             foreach (var cs in correlatedSequence.Where(z => z.CorrelationStatus == CorrelationStatus.Equal))
             {
                 var zippedComparisonUnitArrays = cs.ComparisonUnitArray1.Zip(cs.ComparisonUnitArray2, (cuBefore, cuAfter) => new
@@ -703,14 +561,20 @@ namespace OpenXmlPowerTools
                 });
                 foreach (var cu in zippedComparisonUnitArrays)
                 {
-                    var zippedContents = ((ComparisonUnitWord)cu.CuBefore)
-                        .Contents
-                        .Zip(((ComparisonUnitWord)cu.CuAfter)
-                            .Contents, (conBefore, conAfter) => new
+                    var beforeDescendantContentAtoms = cu.CuBefore
+                        .DescendantContentAtoms();
+
+                    var afterDescendantContentAtoms = cu.CuAfter
+                        .DescendantContentAtoms();
+
+                    var zippedContents = beforeDescendantContentAtoms
+                        .Zip(afterDescendantContentAtoms,
+                            (conBefore, conAfter) => new
                             {
                                 ConBefore = conBefore,
                                 ConAfter = conAfter,
                             });
+
                     foreach (var con in zippedContents)
                     {
                         var zippedAncestors = con.ConBefore.AncestorElements.Zip(con.ConAfter.AncestorElements, (ancBefore, ancAfter) => new
@@ -733,18 +597,6 @@ namespace OpenXmlPowerTools
                 }
             }
 
-            if (s_DumpLog)
-            {
-                var sb = new StringBuilder();
-                foreach (var item in correlatedSequence)
-                    sb.Append(item.ToString()).Append(Environment.NewLine);
-                var sbs = sb.ToString();
-                Console.WriteLine(sbs);
-            }
-
-#endif
-
-#if false
             // and then finally can generate the document with revisions
 
              using (MemoryStream ms = new MemoryStream())
@@ -792,8 +644,6 @@ namespace OpenXmlPowerTools
                  var updatedWmlResult = new WmlDocument("Dummy.docx", ms.ToArray());
                  return updatedWmlResult;
              }
-#endif
-            return null;
         }
 
 #if false
@@ -1627,7 +1477,7 @@ namespace OpenXmlPowerTools
 
             while (true)
             {
-                if (true)
+                if (s_DumpLog)
                 {
                     var sb = new StringBuilder();
                     foreach (var item in csList)
@@ -1715,79 +1565,267 @@ namespace OpenXmlPowerTools
                 }
             }
 
+            if (currentLongestCommonSequenceLength == 1)
+            {
+                var cuw2 = cul2[currentI2] as ComparisonUnitAtom;
+                if (cuw2 != null)
+                {
+                    if (cuw2.ContentElement.Name == W.t && cuw2.ContentElement.Value == " ")
+                    {
+                        currentI1 = -1;
+                        currentI2 = -1;
+                        currentLongestCommonSequenceLength = 0;
+                    }
+                }
+            }
+
+            // if we are only looking at text, and if the longest common subsequence is less than 15% of the whole, then forget it,
+            // don't find that LCS.
+            if (currentLongestCommonSequenceLength > 0)
+            {
+                var anyButWord1 = cul1.Any(cu => (cu as ComparisonUnitWord) == null);
+                var anyButWord2 = cul2.Any(cu => (cu as ComparisonUnitWord) == null);
+                if (!anyButWord1 && !anyButWord2)
+                {
+                    var maxLen = Math.Max(cul1.Length, cul2.Length);
+                    if (((double)currentLongestCommonSequenceLength / (double)maxLen) < 0.15)
+                    {
+                        currentI1 = -1;
+                        currentI2 = -1;
+                        currentLongestCommonSequenceLength = 0;
+                    }
+                }
+            }
+
             var newListOfCorrelatedSequence = new List<CorrelatedSequence>();
             if (currentI1 == -1 && currentI2 == -1)
             {
-                // if everything in the list is a group, then flatten the first group, and return.
-                // we'll get back here eventually to flatten the next, and then the next...
+                // If either side contains only paras or tables, then flatten and iterate.
 
+                var leftParasAndTables = unknown
+                    .ComparisonUnitArray1
+                    .Where(cu =>
+                    {
+                        var cug = cu as ComparisonUnitGroup;
+                        if (cug == null)
+                            return false;
+                        return cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Table ||
+                            cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Paragraph;
+                    });
+                var leftOnlyParasAndTables = leftParasAndTables.Count() == unknown.ComparisonUnitArray1.Length;
 
+                var rightParasAndTables = unknown
+                    .ComparisonUnitArray2
+                    .Where(cu =>
+                    {
+                        var cug = cu as ComparisonUnitGroup;
+                        if (cug == null)
+                            return false;
+                        return cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Table ||
+                            cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Paragraph;
+                    });
+                var rightOnlyParasAndTables = rightParasAndTables.Count() == unknown.ComparisonUnitArray2.Length;
 
-                if (unknown.ComparisonUnitArray1.Any(cu => !(cu is ComparisonUnitGroup)) &&
-                    unknown.ComparisonUnitArray2.Any(cu => !(cu is ComparisonUnitGroup)))
+                if (leftOnlyParasAndTables && rightOnlyParasAndTables)
                 {
-                    // but if there are no groups in the list, then create deleted / inserted.
+                    // flatten paras and tables, and iterate
+                    var left = unknown
+                        .ComparisonUnitArray1
+                        .Select(cu => cu.Contents)
+                        .SelectMany(m => m)
+                        .ToArray();
 
-                    var deletedCorrelatedSequence = new CorrelatedSequence();
-                    deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-                    deletedCorrelatedSequence.ComparisonUnitArray1 = unknown.ComparisonUnitArray1;
-                    deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-                    newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                    var right = unknown
+                        .ComparisonUnitArray2
+                        .Select(cu => cu.Contents)
+                        .SelectMany(m => m)
+                        .ToArray();
 
-                    var insertedCorrelatedSequence = new CorrelatedSequence();
-                    insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-                    insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-                    insertedCorrelatedSequence.ComparisonUnitArray2 = unknown.ComparisonUnitArray2;
-                    newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+                    var unknownCorrelatedSequence = new CorrelatedSequence();
+                    unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
+                    unknownCorrelatedSequence.ComparisonUnitArray1 = left;
+                    unknownCorrelatedSequence.ComparisonUnitArray2 = right;
+                    newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
 
                     return newListOfCorrelatedSequence;
                 }
-                else
+
+                // if first of left is a row and first of right is a row
+                // then flatten the row to cells and iterate.
+
+                var firstLeft = unknown
+                    .ComparisonUnitArray1
+                    .First() as ComparisonUnitGroup;
+
+                var firstRight = unknown
+                    .ComparisonUnitArray2
+                    .First() as ComparisonUnitGroup;
+
+                if (firstLeft != null && firstRight != null)
                 {
-                    var cu1 = unknown.ComparisonUnitArray1;
-                    var cu2 = unknown.ComparisonUnitArray2;
-                    var group1 = cu1.First();
-                    var group2 = cu2.First();
-
-                    var flattenedCorrelatedSequence = new CorrelatedSequence();
-                    flattenedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-                    flattenedCorrelatedSequence.ComparisonUnitArray1 = group1.Contents.ToArray();
-                    flattenedCorrelatedSequence.ComparisonUnitArray2 = group2.Contents.ToArray();
-                    newListOfCorrelatedSequence.Add(flattenedCorrelatedSequence);
-
-                    var remainder1 = cu1.Skip(1).ToArray();
-                    var remainder2 = cu2.Skip(1).ToArray();
-
-                    if (remainder1.Length > 0 && remainder2.Length == 0)
+                    if (firstLeft.ComparisonUnitGroupType == ComparisonUnitGroupType.Row &&
+                        firstRight.ComparisonUnitGroupType == ComparisonUnitGroupType.Row)
                     {
-                        var deletedCorrelatedSequence = new CorrelatedSequence();
-                        deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-                        deletedCorrelatedSequence.ComparisonUnitArray1 = remainder1;
-                        deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-                        newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                        ComparisonUnit[] leftContent = firstLeft.Contents.ToArray();
+                        ComparisonUnit[] rightContent = firstRight.Contents.ToArray();
+
+                        var lenLeft = leftContent.Length;
+                        var lenRight = rightContent.Length;
+
+                        if (lenLeft < lenRight)
+                            leftContent = leftContent.Concat(Enumerable.Repeat<ComparisonUnit>(null, lenRight - lenLeft)).ToArray();
+                        else if (lenRight < lenLeft)
+                            rightContent = rightContent.Concat(Enumerable.Repeat<ComparisonUnit>(null, lenLeft - lenRight)).ToArray();
+
+                        List<CorrelatedSequence> newCs = leftContent.Zip(rightContent, (l, r) =>
+                            {
+                                if (l != null && r != null)
+                                {
+                                    var cellLcs = Lcs(l.Contents.ToArray(), r.Contents.ToArray());
+                                    return cellLcs.ToArray();
+                                }
+                                if (l == null)
+                                {
+                                    var insertedCorrelatedSequence = new CorrelatedSequence();
+                                    insertedCorrelatedSequence.ComparisonUnitArray1 = l.Contents.ToArray();
+                                    insertedCorrelatedSequence.ComparisonUnitArray2 = null;
+                                    insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                                    return new[] { insertedCorrelatedSequence };
+                                }
+                                else if (r == null)
+                                {
+                                    var deletedCorrelatedSequence = new CorrelatedSequence();
+                                    deletedCorrelatedSequence.ComparisonUnitArray1 = l.Contents.ToArray();
+                                    deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                                    deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                                    return new[] { deletedCorrelatedSequence };
+                                }
+                                else
+                                    throw new OpenXmlPowerToolsException("Internal error");
+                            })
+                            .SelectMany(m => m)
+                            .ToList();
+
+                        foreach (var cs in newCs)
+                            newListOfCorrelatedSequence.Add(cs);
+
+                        var remainderLeft = unknown
+                            .ComparisonUnitArray1
+                            .Skip(1)
+                            .ToArray();
+
+                        var remainderRight = unknown
+                            .ComparisonUnitArray2
+                            .Skip(1)
+                            .ToArray();
+
+                        if (remainderLeft.Length > 0 && remainderRight.Length == 0)
+                        {
+                            var deletedCorrelatedSequence = new CorrelatedSequence();
+                            deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                            deletedCorrelatedSequence.ComparisonUnitArray1 = remainderLeft;
+                            deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                            newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                        }
+                        else if (remainderRight.Length > 0 && remainderLeft.Length == 0)
+                        {
+                            var insertedCorrelatedSequence = new CorrelatedSequence();
+                            insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                            insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                            insertedCorrelatedSequence.ComparisonUnitArray2 = remainderRight;
+                            newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+                        }
+                        else if (remainderLeft.Length > 0 && remainderRight.Length > 0)
+                        {
+                            var unknownCorrelatedSequence2 = new CorrelatedSequence();
+                            unknownCorrelatedSequence2.CorrelationStatus = CorrelationStatus.Unknown;
+                            unknownCorrelatedSequence2.ComparisonUnitArray1 = remainderLeft;
+                            unknownCorrelatedSequence2.ComparisonUnitArray2 = remainderRight;
+                            newListOfCorrelatedSequence.Add(unknownCorrelatedSequence2);
+                        }
+
+                        if (s_DumpLog)
+                        {
+                            var sb = new StringBuilder();
+                            foreach (var item in newListOfCorrelatedSequence)
+                                sb.Append(item.ToString()).Append(Environment.NewLine);
+                            var sbs = sb.ToString();
+                            Console.WriteLine(sbs);
+                        }
+
+                        return newListOfCorrelatedSequence;
                     }
-                    else if (remainder1.Length == 0 && remainder2.Length > 0)
+                    if (firstLeft.ComparisonUnitGroupType == ComparisonUnitGroupType.Cell &&
+                        firstRight.ComparisonUnitGroupType == ComparisonUnitGroupType.Cell)
                     {
-                        var insertedCorrelatedSequence = new CorrelatedSequence();
-                        insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-                        insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-                        insertedCorrelatedSequence.ComparisonUnitArray2 = remainder2;
-                        newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-                    }
-                    else if (remainder1.Length > 0 && remainder2.Length > 0)
-                    {
+                        var left = firstLeft
+                            .Contents
+                            .ToArray();
+
+                        var right = firstRight
+                            .Contents
+                            .ToArray();
+
                         var unknownCorrelatedSequence = new CorrelatedSequence();
                         unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-                        unknownCorrelatedSequence.ComparisonUnitArray1 = remainder1;
-                        unknownCorrelatedSequence.ComparisonUnitArray2 = remainder2;
+                        unknownCorrelatedSequence.ComparisonUnitArray1 = left;
+                        unknownCorrelatedSequence.ComparisonUnitArray2 = right;
                         newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
+
+                        var remainderLeft = unknown
+                            .ComparisonUnitArray1
+                            .Skip(1)
+                            .ToArray();
+
+                        var remainderRight = unknown
+                            .ComparisonUnitArray2
+                            .Skip(1)
+                            .ToArray();
+
+                        if (remainderLeft.Length > 0 && remainderRight.Length == 0)
+                        {
+                            var deletedCorrelatedSequence = new CorrelatedSequence();
+                            deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                            deletedCorrelatedSequence.ComparisonUnitArray1 = remainderLeft;
+                            deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                            newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                        }
+                        else if (remainderRight.Length > 0 && remainderLeft.Length == 0)
+                        {
+                            var insertedCorrelatedSequence = new CorrelatedSequence();
+                            insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                            insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                            insertedCorrelatedSequence.ComparisonUnitArray2 = remainderRight;
+                            newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+                        }
+                        else if (remainderLeft.Length > 0 && remainderRight.Length > 0)
+                        {
+                            var unknownCorrelatedSequence2 = new CorrelatedSequence();
+                            unknownCorrelatedSequence2.CorrelationStatus = CorrelationStatus.Unknown;
+                            unknownCorrelatedSequence2.ComparisonUnitArray1 = remainderLeft;
+                            unknownCorrelatedSequence2.ComparisonUnitArray2 = remainderRight;
+                            newListOfCorrelatedSequence.Add(unknownCorrelatedSequence2);
+                        }
+
+                        return newListOfCorrelatedSequence;
                     }
-                    else if (remainder1.Length == 0 && remainder2.Length == 0)
-                    {
-                        // nothing to do
-                    }
-                    return newListOfCorrelatedSequence;
                 }
+
+                // otherwise create ins and del
+
+                var deletedCorrelatedSequence3 = new CorrelatedSequence();
+                deletedCorrelatedSequence3.CorrelationStatus = CorrelationStatus.Deleted;
+                deletedCorrelatedSequence3.ComparisonUnitArray1 = unknown.ComparisonUnitArray1;
+                deletedCorrelatedSequence3.ComparisonUnitArray2 = null;
+                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence3);
+
+                var insertedCorrelatedSequence3 = new CorrelatedSequence();
+                insertedCorrelatedSequence3.CorrelationStatus = CorrelationStatus.Inserted;
+                insertedCorrelatedSequence3.ComparisonUnitArray1 = null;
+                insertedCorrelatedSequence3.ComparisonUnitArray2 = unknown.ComparisonUnitArray2;
+                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence3);
+
+                return newListOfCorrelatedSequence;
             }
 
             if (currentI1 > 0 && currentI2 == 0)
@@ -1881,1006 +1919,6 @@ namespace OpenXmlPowerTools
             return newListOfCorrelatedSequence;
         }
 
-#if false
-        // old code
-
-        /* There are two modes for the LCS algorithm:
-         * 1) When comparing actual text, i.e. contains ComparisonUnitWord in the sequences.  Set doMatchBecauseInGroup = true.  This
-         *    does comparison such that it always sets tables to match each other, so that they get into an Equal group.
-         * 2) After all text is resolved into Equal, Inserted, or Deleted (with groups in any of the three) then we recursively expand
-         *    groups.  When we encounter a table, then we set up a recursive call into Lcs with the rows.  In this mode, we set
-         *    doMatchBecauseInGroup = false, which will then force the algorithm to recursively compare the actual rows, therefore the
-         *    LCS algorithm will work.
-         */
-
-        private static List<CorrelatedSequence> Lcs(ComparisonUnit[] cu1, ComparisonUnit[] cu2, bool doMatchBecauseInGroup)
-        {
-            // set up initial state - one CorrelatedSequence, UnKnown, contents == entire sequences (both)
-            CorrelatedSequence cs = new CorrelatedSequence()
-            {
-                CorrelationStatus = OpenXmlPowerTools.CorrelationStatus.Unknown,
-                ComparisonUnitArray1 = cu1,
-                ComparisonUnitArray2 = cu2,
-            };
-            List<CorrelatedSequence> csList = new List<CorrelatedSequence>()
-            {
-                cs
-            };
-
-            while (true)
-            {
-                var unknown = csList
-                    .FirstOrDefault(z => z.CorrelationStatus == CorrelationStatus.Unknown);
-                if (unknown != null)
-                {
-                    // do LCS on paragraphs here
-                    List<CorrelatedSequence> newSequence = FindLongestCommonSequenceOfBlockLevelContent(unknown);
-                    if (newSequence == null)
-                        newSequence = FindLongestCommonSequence(unknown, doMatchBecauseInGroup);
-
-                    var indexOfUnknown = csList.IndexOf(unknown);
-                    csList.Remove(unknown);
-
-                    newSequence.Reverse();
-                    foreach (var item in newSequence)
-                        csList.Insert(indexOfUnknown, item);
-
-                }
-                else
-                {
-                    // Once there are no unknown correlated sequences for a given story, then we start expanding
-                    // groups.  Once there are no more groups, then we're done.
-                    var group = csList
-                        .FirstOrDefault(z =>
-                        {
-                            if (z.CorrelationStatus != CorrelationStatus.Equal)
-                                return false;
-                            // the two sequences are set as equal, so this will return the same group for both sequences.
-                            var firstCU1 = z.ComparisonUnitArray1.FirstOrDefault(cu => cu is ComparisonUnitGroup);
-                            var firstCU2 = z.ComparisonUnitArray2.FirstOrDefault(cu => cu is ComparisonUnitGroup);
-                            return firstCU1 != null && firstCU2 != null;
-                        });
-
-                    if (group == null)
-                        break;
-
-                    if (true)
-                    {
-                        var sb = new StringBuilder();
-                        sb.Append(group.ToString()).Append(Environment.NewLine);
-                        var sbs = sb.ToString();
-                        Console.WriteLine(sbs);
-                    }
-
-                    var expandedGroup = ExpandGroup(group);
-
-                    var indexOfGroup = csList.IndexOf(group);
-                    csList.Remove(group);
-
-                    expandedGroup.Reverse();
-                    foreach (var item in expandedGroup)
-                        csList.Insert(indexOfGroup, item);
-
-                    continue;
-                }
-
-            }
-
-            return csList;
-        }
-#endif
-
-//        private static List<CorrelatedSequence> ExpandGroup(CorrelatedSequence group)
-//        {
-//            // here, initially, we have the Group for the table
-//            // need to determine it is a table, and then return a set of CorrelatedSequences for the rows.
-
-//            if (group.CorrelationStatus != CorrelationStatus.Equal)
-//                throw new OpenXmlPowerToolsException("Internal error - unexpected correlation status");
-
-//            var firstComparisonUnit = group.ComparisonUnitArray1.Take(1).OfType<ComparisonUnitGroup>().FirstOrDefault();
-//            if (firstComparisonUnit.ComparisonUnitGroupType == ComparisonUnitGroupType.Table)
-//                return ExpandGroupForTable(group);
-//            else if (firstComparisonUnit.ComparisonUnitGroupType == ComparisonUnitGroupType.Row)
-//                return ExpandGroupForRow(group);
-//            else if (firstComparisonUnit.ComparisonUnitGroupType == ComparisonUnitGroupType.Cell)
-//                return ExpandGroupForCell(group);
-//            throw new OpenXmlPowerToolsException("Internal error - should never reach here.");
-//        }
-
-//        private static List<CorrelatedSequence> ExpandGroupForTable(CorrelatedSequence group)
-//        {
-//            var table1 = group.ComparisonUnitArray1;
-//            if (table1.Length != 1)
-//                throw new OpenXmlPowerToolsException("Internal error");
-//            var table2 = group.ComparisonUnitArray2;
-//            if (table2.Length != 1)
-//                throw new OpenXmlPowerToolsException("Internal error");
-
-//            if (s_DumpLog)
-//            {
-//                var sb = new StringBuilder();
-//                var s1 = ComparisonUnit.ComparisonUnitListToString(table1);
-//                sb.Append(s1);
-//                var s2 = ComparisonUnit.ComparisonUnitListToString(table2);
-//                sb.Append(s2);
-//                var sbs = sb.ToString();
-//                Console.WriteLine(sbs);
-//            }
-
-//            var rows1 = table1.Take(1).OfType<ComparisonUnitGroup>().First().Contents.ToArray();
-//            var rows2 = table2.Take(1).OfType<ComparisonUnitGroup>().First().Contents.ToArray();
-
-//            // find rows at beginning
-//            var rowsAtBeginning = rows1
-//                .Zip(rows2, (r1, r2) => new {
-//                    R1 = r1,
-//                    R2 = r2,
-//                })
-//                .TakeWhile(z => z.R1 == z.R2)
-//                .Count();
-
-//            // find rows at end
-//            var rowsAtEnd = rows1
-//                .Reverse()
-//                .SkipLast(rowsAtBeginning)
-//                .Zip(rows2.Reverse().SkipLast(rowsAtBeginning), (r1, r2) => new
-//                {
-//                    R1 = r1,
-//                    R2 = r2,
-//                })
-//                .TakeWhile(z => z.R1 == z.R2)
-//                .Count();
-
-//            var returnedCorrelatedSequenceBeginning = rows1
-//                .Take(rowsAtBeginning)
-//                .Select(r => ((ComparisonUnitGroup)r).Contents)
-//                .SelectMany(m => m)
-//                .Select(c => ((ComparisonUnitGroup)c).Contents)
-//                .SelectMany(m => m)
-//                .ToList();
-
-//            var returnedCorrelatedSequenceEnd = rows2
-//                .Reverse()
-//                .Take(rowsAtEnd)
-//                .Reverse()
-//                .Select(r => ((ComparisonUnitGroup)r).Contents)
-//                .SelectMany(m => m)
-//                .Select(c => ((ComparisonUnitGroup)c).Contents)
-//                .SelectMany(m => m)
-//                .ToList();
-
-//            var left1 = rows1.Skip(rowsAtBeginning).SkipLast(rowsAtEnd).ToArray();
-//            var left1Count = left1.Length;
-//            var left2 = rows2.Skip(rowsAtBeginning).SkipLast(rowsAtEnd).ToArray();
-//            var left2Count = left2.Length;
-
-//            List<CorrelatedSequence> newListCs = new List<CorrelatedSequence>();
-
-//            if (returnedCorrelatedSequenceBeginning.Count() > 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = returnedCorrelatedSequenceBeginning.ToArray();
-//                newCS.ComparisonUnitArray2 = newCS.ComparisonUnitArray1;
-//                newCS.CorrelationStatus = CorrelationStatus.Equal;
-//                newListCs.Add(newCS);
-//            }
-
-//            if (left1Count > 0 && left2Count == 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = left1;
-//                newCS.ComparisonUnitArray2 = null;
-//                newCS.CorrelationStatus = CorrelationStatus.Deleted;
-//                newListCs.Add(newCS);
-//            }
-//            else if (left1Count == 0 && left2Count > 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = null;
-//                newCS.ComparisonUnitArray2 = left2;
-//                newCS.CorrelationStatus = CorrelationStatus.Inserted;
-//                newListCs.Add(newCS);
-//            }
-//            else if (left1Count > 0 && left2Count > 0)
-//            {
-//                // below, we specify doMatchBecauseInGroup = false, so that we do actual compare of rows
-//                var middleCS = Lcs(left1, left2).ToList();
-//                foreach (var item in middleCS)
-//                    newListCs.Add(item);
-//            }
-//            else if (left1Count == 0 && left2Count == 0)
-//            {
-//                // nothing to do
-//            }
-
-//            if (returnedCorrelatedSequenceEnd.Count() > 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = returnedCorrelatedSequenceEnd.ToArray();
-//                newCS.ComparisonUnitArray2 = newCS.ComparisonUnitArray1;
-//                newCS.CorrelationStatus = CorrelationStatus.Equal;
-//                newListCs.Add(newCS);
-//            }
-
-//            return newListCs;
-//        }
-
-//        // ExpandGroupForRow is only called for groups that are Equal, at this point
-//        private static List<CorrelatedSequence> ExpandGroupForRow(CorrelatedSequence group)
-//        {
-//            var rows1 = group.ComparisonUnitArray1;
-//            var rows2 = group.ComparisonUnitArray2;
-
-//            if (s_DumpLog)
-//            {
-//                var sb = new StringBuilder();
-//                var s1 = ComparisonUnit.ComparisonUnitListToString(rows1);
-//                sb.Append(s1);
-//                var s2 = ComparisonUnit.ComparisonUnitListToString(rows2);
-//                sb.Append(s2);
-//                var sbs = sb.ToString();
-//                Console.WriteLine(sbs);
-//            }
-
-//            // this projects the ComparisonUnitWord objects (that are equal, bc that is all that is passed to this method, for now)
-//            var cells = rows1
-//                .OfType<ComparisonUnitGroup>()
-//                .Select(g => g.Contents)
-//                .SelectMany(m => m)
-//                .OfType<ComparisonUnitGroup>()
-//                .Select(g => g.Contents)
-//                .SelectMany(m => m)
-//                .OfType<ComparisonUnitWord>()
-//                .ToArray();
-
-//            List<CorrelatedSequence> newListCs = new List<CorrelatedSequence>();
-
-//            var newCS = new CorrelatedSequence();
-//            newCS.ComparisonUnitArray1 = cells;
-//            newCS.ComparisonUnitArray2 = cells;
-//            newCS.CorrelationStatus = CorrelationStatus.Equal;
-//            newListCs.Add(newCS);
-
-//            return newListCs;
-//#if false
-//            var cells1 = rows1.Take(1).OfType<ComparisonUnitGroup>().First().Contents.ToArray();
-//            var cells2 = rows2.Take(1).OfType<ComparisonUnitGroup>().First().Contents.ToArray();
-
-//            // find rows at beginning
-//            var cellsAtBeginning = cells1
-//                .Zip(cells2, (r1, r2) => new
-//                {
-//                    R1 = r1,
-//                    R2 = r2,
-//                })
-//                .TakeWhile(z => z.R1 == z.R2)
-//                .Count();
-
-//            // find rows at end
-//            var cellsAtEnd = cells1
-//                .Reverse()
-//                .SkipLast(cellsAtBeginning)
-//                .Zip(cells2.Reverse().SkipLast(cellsAtBeginning), (r1, r2) => new
-//                {
-//                    R1 = r1,
-//                    R2 = r2,
-//                })
-//                .TakeWhile(z => z.R1 == z.R2)
-//                .Count();
-
-//            var returnedCorrelatedSequenceBeginning = cells1
-//                .Take(cellsAtBeginning)
-//                .Select(r => ((ComparisonUnitGroup)r).Contents)
-//                .SelectMany(m => m)
-//                .Select(c => ((ComparisonUnitGroup)c).Contents)
-//                .SelectMany(m => m)
-//                .ToList();
-
-//            var returnedCorrelatedSequenceEnd = cells2
-//                .Reverse()
-//                .Take(cellsAtEnd)
-//                .Reverse()
-//                .Select(r => ((ComparisonUnitGroup)r).Contents)
-//                .SelectMany(m => m)
-//                .Select(c => ((ComparisonUnitGroup)c).Contents)
-//                .SelectMany(m => m)
-//                .ToList();
-
-//            var left1 = cells1.Skip(cellsAtBeginning).SkipLast(cellsAtEnd).ToArray();
-//            var left1Count = left1.Length;
-//            var left2 = cells2.Skip(cellsAtBeginning).SkipLast(cellsAtEnd).ToArray();
-//            var left2Count = left2.Length;
-
-//            List<CorrelatedSequence> newListCs = new List<CorrelatedSequence>();
-
-//            if (returnedCorrelatedSequenceBeginning.Count() > 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = returnedCorrelatedSequenceBeginning.ToArray();
-//                newCS.ComparisonUnitArray2 = newCS.ComparisonUnitArray1;
-//                newCS.CorrelationStatus = CorrelationStatus.Equal;
-//                newListCs.Add(newCS);
-//            }
-
-//            if (left1Count > 0 && left2Count == 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = left1;
-//                newCS.ComparisonUnitArray2 = null;
-//                newCS.CorrelationStatus = CorrelationStatus.Deleted;
-//                newListCs.Add(newCS);
-//            }
-//            else if (left1Count == 0 && left2Count > 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = null;
-//                newCS.ComparisonUnitArray2 = left2;
-//                newCS.CorrelationStatus = CorrelationStatus.Inserted;
-//                newListCs.Add(newCS);
-//            }
-//            else if (left1Count > 0 && left2Count > 0)
-//            {
-//                // below, we specify doMatchBecauseInGroup = false, so that we do actual compare of rows
-//                var middleCS = Lcs(left1, left2, false).ToList();
-//                foreach (var item in middleCS)
-//                    newListCs.Add(item);
-//            }
-//            else if (left1Count == 0 && left2Count == 0)
-//            {
-//                // nothing to do
-//            }
-
-//            if (returnedCorrelatedSequenceEnd.Count() > 0)
-//            {
-//                var newCS = new CorrelatedSequence();
-//                newCS.ComparisonUnitArray1 = returnedCorrelatedSequenceEnd.ToArray();
-//                newCS.ComparisonUnitArray2 = newCS.ComparisonUnitArray1;
-//                newCS.CorrelationStatus = CorrelationStatus.Equal;
-//                newListCs.Add(newCS);
-//            }
-
-//            return newListCs;
-//#endif
-//        }
-
-//        private static List<CorrelatedSequence> ExpandGroupForCell(CorrelatedSequence group)
-//        {
-//            throw new NotImplementedException();
-//        }
-
-//        class BlockComparisonUnit
-//        {
-//            public List<ComparisonUnit> ComparisonUnits = new List<ComparisonUnit>();
-//            public string SHA1Hash = null;
-
-//            public override string ToString()
-//            {
-//                var sb = new StringBuilder();
-//                sb.Append("ParagraphUnit - SHA1Hash:" + SHA1Hash + Environment.NewLine);
-//                sb.Append(ComparisonUnitWord.ComparisonUnitListToString(this.ComparisonUnits.ToArray()));
-//                return sb.ToString();
-//            }
-//        }
-
-        // when this routine runs where the CorrelatedSequence contains ComparisonUnitWord objects, then 
-        //private static List<CorrelatedSequence> FindLongestCommonSequenceOfBlockLevelContent(CorrelatedSequence unknown)
-        //{
-        //    BlockComparisonUnit[] comparisonUnitArray1ByBlockLevelContent = GetBlockComparisonUnitListWithHashCode(unknown.ComparisonUnitArray1);
-        //    BlockComparisonUnit[] comparisonUnitArray2ByBlockLevelContent = GetBlockComparisonUnitListWithHashCode(unknown.ComparisonUnitArray2);
-
-        //    if (s_DumpLog)
-        //    {
-        //        var sb = new StringBuilder();
-        //        sb.Append("ComparisonUnitArray1ByBlockLevelContent =====" + Environment.NewLine);
-        //        foreach (var item in comparisonUnitArray1ByBlockLevelContent)
-        //        {
-        //            sb.Append("  BlockLevelContent: " + item.SHA1Hash + Environment.NewLine);
-        //            foreach (var comparisonUnit in item.ComparisonUnits)
-        //                sb.Append(comparisonUnit.ToString(4));
-        //        }
-        //        sb.Append(Environment.NewLine);
-        //        sb.Append("ComparisonUnitArray2ByBlockLevelContent =====" + Environment.NewLine);
-        //        foreach (var item in comparisonUnitArray2ByBlockLevelContent)
-        //        {
-        //            sb.Append("  BlockLevelContent: " + item.SHA1Hash + Environment.NewLine);
-        //            foreach (var comparisonUnit in item.ComparisonUnits)
-        //                sb.Append(comparisonUnit.ToString(4));
-        //        }
-        //        var sbs = sb.ToString();
-        //        Console.WriteLine(sbs);
-        //    }
-
-        //    int lengthToCompare = Math.Min(comparisonUnitArray1ByBlockLevelContent.Count(), comparisonUnitArray2ByBlockLevelContent.Count());
-
-        //    var countCommonParasAtBeginning = comparisonUnitArray1ByBlockLevelContent
-        //        .Take(lengthToCompare)
-        //        .Zip(comparisonUnitArray2ByBlockLevelContent, (pu1, pu2) =>
-        //        {
-        //            return new
-        //            {
-        //                Pu1 = pu1,
-        //                Pu2 = pu2,
-        //            };
-        //        })
-        //        .TakeWhile(pair => pair.Pu1.SHA1Hash == pair.Pu2.SHA1Hash)
-        //        .Count();
-
-        //    var countCommonParasAtEnd = ((IEnumerable<BlockComparisonUnit>)comparisonUnitArray1ByBlockLevelContent)
-        //        .Skip(countCommonParasAtBeginning)
-        //        .Reverse()
-        //        .Take(lengthToCompare)
-        //        .Zip(((IEnumerable<BlockComparisonUnit>)comparisonUnitArray2ByBlockLevelContent).Reverse(), (pu1, pu2) =>
-        //        {
-        //            return new
-        //            {
-        //                Pu1 = pu1,
-        //                Pu2 = pu2,
-        //            };
-        //        })
-        //        .TakeWhile(pair => pair.Pu1.SHA1Hash == pair.Pu2.SHA1Hash)
-        //        .Count();
-
-        //    List<CorrelatedSequence> newSequence = null;
-
-        //    if (countCommonParasAtBeginning != 0 || countCommonParasAtEnd != 0)
-        //    {
-        //        newSequence = new List<CorrelatedSequence>();
-        //        if (countCommonParasAtBeginning > 0)
-        //        {
-        //            CorrelatedSequence cs = new CorrelatedSequence();
-        //            cs.CorrelationStatus = CorrelationStatus.Equal;
-        //            cs.ComparisonUnitArray1 = comparisonUnitArray1ByBlockLevelContent
-        //                .Take(countCommonParasAtBeginning)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            cs.ComparisonUnitArray2 = comparisonUnitArray2ByBlockLevelContent
-        //                .Take(countCommonParasAtBeginning)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newSequence.Add(cs);
-        //        }
-
-        //        int middleSection1Len = comparisonUnitArray1ByBlockLevelContent.Count() - countCommonParasAtBeginning - countCommonParasAtEnd;
-        //        int middleSection2Len = comparisonUnitArray2ByBlockLevelContent.Count() - countCommonParasAtBeginning - countCommonParasAtEnd;
-
-        //        if (middleSection1Len > 0 && middleSection2Len == 0)
-        //        {
-        //            CorrelatedSequence cs = new CorrelatedSequence();
-        //            cs.CorrelationStatus = CorrelationStatus.Deleted;
-        //            cs.ComparisonUnitArray1 = comparisonUnitArray1ByBlockLevelContent
-        //                .Skip(countCommonParasAtBeginning)
-        //                .Take(middleSection1Len)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            cs.ComparisonUnitArray2 = null;
-        //            newSequence.Add(cs);
-        //        }
-        //        else if (middleSection1Len == 0 && middleSection2Len > 0)
-        //        {
-        //            CorrelatedSequence cs = new CorrelatedSequence();
-        //            cs.CorrelationStatus = CorrelationStatus.Inserted;
-        //            cs.ComparisonUnitArray1 = null;
-        //            cs.ComparisonUnitArray2 = comparisonUnitArray2ByBlockLevelContent
-        //                .Skip(countCommonParasAtBeginning)
-        //                .Take(middleSection2Len)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newSequence.Add(cs);
-        //        }
-        //        else if (middleSection1Len > 0 && middleSection2Len > 0)
-        //        {
-        //            CorrelatedSequence cs = new CorrelatedSequence();
-        //            cs.CorrelationStatus = CorrelationStatus.Unknown;
-        //            cs.ComparisonUnitArray1 = comparisonUnitArray1ByBlockLevelContent
-        //                .Skip(countCommonParasAtBeginning)
-        //                .Take(middleSection1Len)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            cs.ComparisonUnitArray2 = comparisonUnitArray2ByBlockLevelContent
-        //                .Skip(countCommonParasAtBeginning)
-        //                .Take(middleSection2Len)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newSequence.Add(cs);
-        //        }
-        //        else if (middleSection1Len == 0 && middleSection2Len == 0)
-        //        {
-        //            // nothing to do
-        //        }
-
-        //        if (countCommonParasAtEnd > 0)
-        //        {
-        //            CorrelatedSequence cs = new CorrelatedSequence();
-        //            cs.CorrelationStatus = CorrelationStatus.Equal;
-        //            cs.ComparisonUnitArray1 = comparisonUnitArray1ByBlockLevelContent
-        //                .Skip(countCommonParasAtBeginning)
-        //                .Skip(middleSection1Len)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            cs.ComparisonUnitArray2 = comparisonUnitArray2ByBlockLevelContent
-        //                .Skip(countCommonParasAtBeginning)
-        //                .Skip(middleSection2Len)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newSequence.Add(cs);
-        //        }
-        //    }
-        //    else
-        //    {
-        //        var cul1 = comparisonUnitArray1ByBlockLevelContent;
-        //        var cul2 = comparisonUnitArray2ByBlockLevelContent;
-        //        int currentLongestCommonSequenceLength = 0;
-        //        int currentI1 = -1;
-        //        int currentI2 = -1;
-        //        for (int i1 = 0; i1 < cul1.Length; i1++)
-        //        {
-        //            for (int i2 = 0; i2 < cul2.Length; i2++)
-        //            {
-        //                var thisSequenceLength = 0;
-        //                var thisI1 = i1;
-        //                var thisI2 = i2;
-        //                while (true)
-        //                {
-        //                    if (cul1[thisI1].SHA1Hash == cul2[thisI2].SHA1Hash)
-        //                    {
-        //                        thisI1++;
-        //                        thisI2++;
-        //                        thisSequenceLength++;
-        //                        if (thisI1 == cul1.Length || thisI2 == cul2.Length)
-        //                        {
-        //                            if (thisSequenceLength > currentLongestCommonSequenceLength)
-        //                            {
-        //                                currentLongestCommonSequenceLength = thisSequenceLength;
-        //                                currentI1 = i1;
-        //                                currentI2 = i2;
-        //                            }
-        //                            break;
-        //                        }
-        //                        continue;
-        //                    }
-        //                    else
-        //                    {
-        //                        if (thisSequenceLength > currentLongestCommonSequenceLength)
-        //                        {
-        //                            currentLongestCommonSequenceLength = thisSequenceLength;
-        //                            currentI1 = i1;
-        //                            currentI2 = i2;
-        //                        }
-        //                        break;
-        //                    }
-        //                }
-        //            }
-        //        }
-
-        //        var newListOfCorrelatedSequence = new List<CorrelatedSequence>();
-        //        if (currentI1 == -1 && currentI2 == -1)
-        //        {
-        //            return null;
-        //        }
-
-        //        if (currentI1 > 0 && currentI2 == 0)
-        //        {
-        //            var deletedCorrelatedSequence = new CorrelatedSequence();
-        //            deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-        //            deletedCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentI1).Select(cu => cu.ComparisonUnits).SelectMany(m => m).ToArray();
-        //            deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-        //            newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
-        //        }
-        //        else if (currentI1 == 0 && currentI2 > 0)
-        //        {
-        //            var insertedCorrelatedSequence = new CorrelatedSequence();
-        //            insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-        //            insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-        //            insertedCorrelatedSequence.ComparisonUnitArray2 = cul2
-        //                .Take(currentI2)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-        //        }
-        //        else if (currentI1 > 0 && currentI2 > 0)
-        //        {
-        //            var unknownCorrelatedSequence = new CorrelatedSequence();
-        //            unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-        //            unknownCorrelatedSequence.ComparisonUnitArray1 = cul1
-        //                .Take(currentI1)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            unknownCorrelatedSequence.ComparisonUnitArray2 = cul2
-        //                .Take(currentI2)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
-        //        }
-        //        else if (currentI1 == 0 && currentI2 == 0)
-        //        {
-        //            // nothing to do
-        //        }
-
-        //        var middleEqual = new CorrelatedSequence();
-        //        middleEqual.CorrelationStatus = CorrelationStatus.Equal;
-        //        middleEqual.ComparisonUnitArray1 = cul1
-        //            .Skip(currentI1)
-        //            .Take(currentLongestCommonSequenceLength)
-        //            .Select(cu => cu.ComparisonUnits)
-        //            .SelectMany(m => m)
-        //            .ToArray();
-        //        middleEqual.ComparisonUnitArray2 = cul2
-        //            .Skip(currentI2)
-        //            .Take(currentLongestCommonSequenceLength)
-        //            .Select(cu => cu.ComparisonUnits)
-        //            .SelectMany(m => m)
-        //            .ToArray();
-        //        newListOfCorrelatedSequence.Add(middleEqual);
-
-        //        int endI1 = currentI1 + currentLongestCommonSequenceLength;
-        //        int endI2 = currentI2 + currentLongestCommonSequenceLength;
-
-        //        if (endI1 < cul1.Length && endI2 == cul2.Length)
-        //        {
-        //            var deletedCorrelatedSequence = new CorrelatedSequence();
-        //            deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-        //            deletedCorrelatedSequence.ComparisonUnitArray1 = cul1
-        //                .Skip(endI1)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-        //            newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
-        //        }
-        //        else if (endI1 == cul1.Length && endI2 < cul2.Length)
-        //        {
-        //            var insertedCorrelatedSequence = new CorrelatedSequence();
-        //            insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-        //            insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-        //            insertedCorrelatedSequence.ComparisonUnitArray2 = cul2
-        //                .Skip(endI2)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-        //        }
-        //        else if (endI1 < cul1.Length && endI2 < cul2.Length)
-        //        {
-        //            var unknownCorrelatedSequence = new CorrelatedSequence();
-        //            unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-        //            unknownCorrelatedSequence.ComparisonUnitArray1 = cul1
-        //                .Skip(endI1)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            unknownCorrelatedSequence.ComparisonUnitArray2 = cul2
-        //                .Skip(endI2)
-        //                .Select(cu => cu.ComparisonUnits)
-        //                .SelectMany(m => m)
-        //                .ToArray();
-        //            newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
-        //        }
-        //        else if (endI1 == cul1.Length && endI2 == cul2.Length)
-        //        {
-        //            // nothing to do
-        //        }
-        //        return newListOfCorrelatedSequence;
-        //    }
-
-        //    return newSequence;
-        //}
-
-        //private static BlockComparisonUnit[] GetBlockComparisonUnitListWithHashCode(ComparisonUnit[] comparisonUnit)
-        //{
-        //    List<BlockComparisonUnit> blockComparisonUnitList = new List<BlockComparisonUnit>();
-        //    BlockComparisonUnit thisBlockComparisonUnit = new BlockComparisonUnit();
-        //    foreach (var item in comparisonUnit)
-        //    {
-        //        var cuw = item as ComparisonUnitWord;
-        //        if (cuw != null)
-        //        {
-        //            if (cuw.Contents.First().ContentElement.Name == W.pPr)
-        //            {
-        //                // note, the following RELIES on that the paragraph properties will only ever be in a group by themselves.
-        //                thisBlockComparisonUnit.ComparisonUnits.Add(item);
-        //                thisBlockComparisonUnit.SHA1Hash = (string)cuw.Contents.First().ContentElement.Attribute(PtOpenXml.SHA1Hash);
-        //                blockComparisonUnitList.Add(thisBlockComparisonUnit);
-        //                thisBlockComparisonUnit = new BlockComparisonUnit();
-        //                continue;
-        //            }
-        //            thisBlockComparisonUnit.ComparisonUnits.Add(item);
-        //            continue;
-        //        }
-        //        var cug = item as ComparisonUnitGroup;
-        //        if (cug != null)
-        //        {
-        //            if (thisBlockComparisonUnit.ComparisonUnits.Any())
-        //                blockComparisonUnitList.Add(thisBlockComparisonUnit);
-        //            thisBlockComparisonUnit = new BlockComparisonUnit();
-        //            thisBlockComparisonUnit.ComparisonUnits.Add(item);
-        //            thisBlockComparisonUnit.SHA1Hash = GetSHA1HasForBlockComparisonUnit(cug);
-        //            blockComparisonUnitList.Add(thisBlockComparisonUnit);
-        //            thisBlockComparisonUnit = new BlockComparisonUnit();
-        //            continue;
-        //        }
-        //    }
-        //    if (thisBlockComparisonUnit.ComparisonUnits.Any())
-        //    {
-        //        thisBlockComparisonUnit.SHA1Hash = Guid.NewGuid().ToString();
-        //        blockComparisonUnitList.Add(thisBlockComparisonUnit);
-        //    }
-        //    return blockComparisonUnitList.ToArray();
-        //}
-
-        // todo how is this going to work for text boxes?
-        // todo how is this going to work for nested tables?
-        //private static string GetSHA1HasForBlockComparisonUnit(ComparisonUnitGroup cug)
-        //{
-        //    ComparisonUnit lookingAt = cug;
-        //    while (true)
-        //    {
-        //        var lookingAtCUG = lookingAt as ComparisonUnitGroup;
-        //        if (lookingAtCUG != null)
-        //        {
-        //            lookingAt = lookingAtCUG.Contents.First();
-        //            continue;
-        //        }
-        //        var lookingAtCUW = lookingAt as ComparisonUnitWord;
-        //        var firstContent = lookingAtCUW.Contents.First();
-
-        //        // todo make sure that this is getting the right table, if there is a table within a table.
-        //        XElement ancestorWithHash = null;
-        //        if (cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Table)
-        //            ancestorWithHash = firstContent.AncestorElements.Reverse().FirstOrDefault(a => a.Name == W.tbl);
-        //        else if (cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Row)
-        //            ancestorWithHash = firstContent.AncestorElements.Reverse().FirstOrDefault(a => a.Name == W.tr);
-        //        return (string)ancestorWithHash.Attribute(PtOpenXml.SHA1Hash);
-        //    }
-        //}
-
-        // whenever comparing chunks of content that can contain ComparisonUnitWord, then set doMatchBecauseInGroup to true
-        // this matches up tables.
-
-        // then whenever comparing group children, which are also groups, then set doMatchBecauseInGroup to false,
-        // and it will then do the actual recursive comparison into the groups.
-
-        private static List<CorrelatedSequence> FindLongestCommonSequence(CorrelatedSequence unknown, bool doMatchBecauseInGroup)
-        {
-            var cul1 = unknown.ComparisonUnitArray1;
-            var cul2 = unknown.ComparisonUnitArray2;
-
-            int currentLongestCommonSequenceLength = 0;
-            int currentI1 = -1;
-            int currentI2 = -1;
-            for (int i1 = 0; i1 < cul1.Length; i1++)
-            {
-                for (int i2 = 0; i2 < cul2.Length; i2++)
-                {
-                    var thisSequenceLength = 0;
-                    var thisI1 = i1;
-                    var thisI2 = i2;
-                    while (true)
-                    {
-                        bool matchBecauseInGroup = false;
-                        if (doMatchBecauseInGroup)
-                        {
-                            var cug1 = cul1[thisI1] as ComparisonUnitGroup;
-                            var cug2 = cul2[thisI2] as ComparisonUnitGroup;
-                            if (cug1 != null && cug2 != null && cug1.ComparisonUnitGroupType == cug2.ComparisonUnitGroupType)
-                                matchBecauseInGroup = true;
-                        }
-
-                        if (matchBecauseInGroup || cul1[thisI1] == cul2[thisI2])
-                        {
-                            thisI1++;
-                            thisI2++;
-                            thisSequenceLength++;
-                            if (thisI1 == cul1.Length || thisI2 == cul2.Length)
-                            {
-                                if (thisSequenceLength > currentLongestCommonSequenceLength)
-                                {
-                                    currentLongestCommonSequenceLength = thisSequenceLength;
-                                    currentI1 = i1;
-                                    currentI2 = i2;
-                                }
-                                break;
-                            }
-                            continue;
-                        }
-                        else
-                        {
-                            if (thisSequenceLength > currentLongestCommonSequenceLength)
-                            {
-                                currentLongestCommonSequenceLength = thisSequenceLength;
-                                currentI1 = i1;
-                                currentI2 = i2;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // if all we match is a paragraph mark, then don't match.
-            if (currentLongestCommonSequenceLength == 1)
-            {
-                var comparisonUnitWord = cul1[currentI1] as ComparisonUnitWord;
-                if (comparisonUnitWord != null)
-                {
-                    if (comparisonUnitWord.Contents.OfType<ComparisonUnitAtom>().First().ContentElement.Name == W.pPr)
-                        currentLongestCommonSequenceLength = 0;
-                        currentI1 = -1;
-                        currentI2 = -1;
-                }
-            }
-
-            // if the paragraph mark is at the beginning of a LCS, then it is possible that erroneously matching a paragraph
-            // mark that has been deleted.
-            if (currentLongestCommonSequenceLength > 1)
-            {
-                var comparisonUnitWord = cul1[currentI1] as ComparisonUnitWord;
-                if (comparisonUnitWord != null)
-                {
-                    if (comparisonUnitWord.Contents.OfType<ComparisonUnitAtom>().First().ContentElement.Name == W.pPr)
-                    {
-                        currentLongestCommonSequenceLength--;
-                        currentI1++;
-                        currentI2++;
-                    }
-                }
-            }
-
-            // if the longest common subsequence starts with a space, and it is longer than 1, then don't include the space.
-            if (currentI1 < cul1.Length && currentI1 != -1)
-            {
-                var comparisonUnitWord = cul1[currentI1] as ComparisonUnitWord;
-                if (comparisonUnitWord != null)
-                {
-                    var contentElement = comparisonUnitWord.Contents.OfType<ComparisonUnitAtom>().First().ContentElement;
-                    if (currentLongestCommonSequenceLength > 1 && contentElement.Name == W.t && char.IsWhiteSpace(contentElement.Value[0]))
-                    {
-                        currentI1++;
-                        currentI2++;
-                        currentLongestCommonSequenceLength--;
-                    }
-                }
-            }
-
-            // if the longest common subsequence is only a space, and it is only a single char long, then don't match
-            if (currentLongestCommonSequenceLength == 1 && currentI1 < cul1.Length && currentI1 != -1)
-            {
-                var comparisonUnitWord = cul1[currentI1] as ComparisonUnitWord;
-                if (comparisonUnitWord != null)
-                {
-                    var contentElement = comparisonUnitWord.Contents.OfType<ComparisonUnitAtom>().First().ContentElement;
-                    if (contentElement.Name == W.t && char.IsWhiteSpace(contentElement.Value[0]))
-                    {
-                        currentLongestCommonSequenceLength = 0;
-                        currentI1 = -1;
-                        currentI2 = -1;
-                    }
-                }
-            }
-
-            // if the longest common subsequence length is less than 20% of the entire length, then don't match
-            var max = Math.Max(cul1.Length, cul2.Length);
-            if (((decimal)currentLongestCommonSequenceLength / (decimal)max) < 0.1M)
-            {
-                currentLongestCommonSequenceLength = 0;
-                currentI1 = -1;
-                currentI2 = -1;
-            }
-
-            var newListOfCorrelatedSequence = new List<CorrelatedSequence>();
-            if (currentI1 == -1 && currentI2 == -1)
-            {
-                var deletedCorrelatedSequence = new CorrelatedSequence();
-                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-                deletedCorrelatedSequence.ComparisonUnitArray1 = cul1;
-                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
-
-                var insertedCorrelatedSequence = new CorrelatedSequence();
-                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-                insertedCorrelatedSequence.ComparisonUnitArray2 = cul2;
-                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-
-                return newListOfCorrelatedSequence;
-            }
-
-            if (currentI1 > 0 && currentI2 == 0)
-            {
-                var deletedCorrelatedSequence = new CorrelatedSequence();
-                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-                deletedCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentI1).ToArray();
-                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
-
-                var equalCorrelatedSequence = new CorrelatedSequence();
-                equalCorrelatedSequence.CorrelationStatus = CorrelationStatus.Equal;
-                equalCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(currentI1).Take(currentLongestCommonSequenceLength).ToArray();
-                equalCorrelatedSequence.ComparisonUnitArray2 = cul2.Take(currentLongestCommonSequenceLength).ToArray();
-                newListOfCorrelatedSequence.Add(equalCorrelatedSequence);
-            }
-            else if (currentI1 == 0 && currentI2 > 0)
-            {
-                var insertedCorrelatedSequence = new CorrelatedSequence();
-                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-                insertedCorrelatedSequence.ComparisonUnitArray2 = cul2.Take(currentI2).ToArray();
-                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-
-                var equalCorrelatedSequence = new CorrelatedSequence();
-                equalCorrelatedSequence.CorrelationStatus = CorrelationStatus.Equal;
-                equalCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentLongestCommonSequenceLength).ToArray();
-                equalCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(currentI2).Take(currentLongestCommonSequenceLength).ToArray();
-                newListOfCorrelatedSequence.Add(equalCorrelatedSequence);
-            }
-            else if (currentI1 > 0 && currentI2 > 0)
-            {
-                var unknownCorrelatedSequence = new CorrelatedSequence();
-                unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-                unknownCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentI1).ToArray();
-                unknownCorrelatedSequence.ComparisonUnitArray2 = cul2.Take(currentI2).ToArray();
-                newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
-
-                var equalCorrelatedSequence = new CorrelatedSequence();
-                equalCorrelatedSequence.CorrelationStatus = CorrelationStatus.Equal;
-                equalCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(currentI1).Take(currentLongestCommonSequenceLength).ToArray();
-                equalCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(currentI2).Take(currentLongestCommonSequenceLength).ToArray();
-                newListOfCorrelatedSequence.Add(equalCorrelatedSequence);
-            }
-            else if (currentI1 == 0 && currentI2 == 0)
-            {
-                var equalCorrelatedSequence = new CorrelatedSequence();
-                equalCorrelatedSequence.CorrelationStatus = CorrelationStatus.Equal;
-                equalCorrelatedSequence.ComparisonUnitArray1 = cul1.Take(currentLongestCommonSequenceLength).ToArray();
-                equalCorrelatedSequence.ComparisonUnitArray2 = cul2.Take(currentLongestCommonSequenceLength).ToArray();
-                newListOfCorrelatedSequence.Add(equalCorrelatedSequence);
-            }
-
-            int endI1 = currentI1 + currentLongestCommonSequenceLength;
-            int endI2 = currentI2 + currentLongestCommonSequenceLength;
-
-            if (endI1 < cul1.Length && endI2 == cul2.Length)
-            {
-                var deletedCorrelatedSequence = new CorrelatedSequence();
-                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-                deletedCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(endI1).ToArray();
-                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
-            }
-            else if (endI1 == cul1.Length && endI2 < cul2.Length)
-            {
-                var insertedCorrelatedSequence = new CorrelatedSequence();
-                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-                insertedCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(endI2).ToArray();
-                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-            }
-            else if (endI1 < cul1.Length && endI2 < cul2.Length)
-            {
-                var unknownCorrelatedSequence = new CorrelatedSequence();
-                unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-                unknownCorrelatedSequence.ComparisonUnitArray1 = cul1.Skip(endI1).ToArray();
-                unknownCorrelatedSequence.ComparisonUnitArray2 = cul2.Skip(endI2).ToArray();
-                newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
-            }
-            else if (endI1 == cul1.Length && endI2 == cul2.Length)
-            {
-                // nothing to do here...
-            }
-            return newListOfCorrelatedSequence;
-        }
-
         private static XName[] WordBreakElements = new XName[] {
             W.pPr,
             W.tab,
@@ -2905,12 +1943,27 @@ namespace OpenXmlPowerTools
             M.oMath,
         };
 
+        private class Atgbw
+        {
+            public int? Key;
+            public ComparisonUnitAtom ComparisonUnitAtomMember;
+            public int NextIndex;
+        }
+
         private static ComparisonUnit[] GetComparisonUnitList(ComparisonUnitAtom[] comparisonUnitAtomList, WmlComparerSettings settings)
         {
+            var seed = new Atgbw()
+            {
+                Key = null,
+                ComparisonUnitAtomMember = null,
+                NextIndex = 0,
+            };
+
             var groupingKey = comparisonUnitAtomList
-                .Select((sr, i) =>
+                .Rollup(seed, (sr, prevAtgbw, i) =>
                 {
-                    string key = null;
+                    int? key = null;
+                    var nextIndex = prevAtgbw.NextIndex;
                     if (sr.ContentElement.Name == W.t)
                     {
                         string chr = sr.ContentElement.Value;
@@ -2933,48 +1986,41 @@ namespace OpenXmlPowerTools
                             }
                             if (beforeIsDigit || afterIsDigit)
                             {
-                                key = "x | ";
-                                var ancestorsKey = sr
-                                    .AncestorElements
-                                    .Where(a => ComparisonGroupingElements.Contains(a.Name))
-                                    .Select(a => (string)a.Attribute(PtOpenXml.Unid) + "-")
-                                    .StringConcatenate();
-                                key += ancestorsKey;
+                                key = nextIndex;
                             }
                             else
-                                key = i.ToString();
+                            {
+                                nextIndex++;
+                                key = nextIndex;
+                                nextIndex++;
+                            }
                         }
                         else if (settings.WordSeparators.Contains(ch))
-                            key = i.ToString();
+                        {
+                            nextIndex++;
+                            key = nextIndex;
+                            nextIndex++;
+                        }
                         else
                         {
-                            key = "x | ";
-                            var ancestorsKey = sr
-                                .AncestorElements
-                                .Where(a => ComparisonGroupingElements.Contains(a.Name))
-                                .Select(a => (string)a.Attribute(PtOpenXml.Unid) + "-")
-                                .StringConcatenate();
-                            key += ancestorsKey;
+                            key = nextIndex;
                         }
                     }
                     else if (WordBreakElements.Contains(sr.ContentElement.Name))
                     {
-                        key = i.ToString();
+                        nextIndex++;
+                        key = nextIndex;
+                        nextIndex++;
                     }
                     else
                     {
-                        key = "x | ";
-                        var ancestorsKey = sr
-                            .AncestorElements
-                            .Where(a => ComparisonGroupingElements.Contains(a.Name))
-                            .Select(a => (string)a.Attribute(PtOpenXml.Unid) + "-")
-                            .StringConcatenate();
-                        key += ancestorsKey;
+                        key = nextIndex;
                     }
-                    return new
+                    return new Atgbw()
                     {
                         Key = key,
-                        ComparisonUnitAtomMember = sr
+                        ComparisonUnitAtomMember = sr,
+                        NextIndex = nextIndex,
                     };
                 });
 
@@ -3081,36 +2127,6 @@ namespace OpenXmlPowerTools
                             group = ComparisonUnitGroupType.Row;
                         else if (spl[0] == "tc")
                             group = ComparisonUnitGroupType.Cell;
-
-
-
-
-
-
-
-
-
-                        /*****************************************************************************/
-
-                        if (group == null)
-                            Console.WriteLine();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
                         var newCompUnitGroup = new ComparisonUnitGroup(GetHierarchicalComparisonUnits(gc, level + 1), (ComparisonUnitGroupType)group);
                         return new[] { newCompUnitGroup };
                     }
@@ -3576,14 +2592,6 @@ namespace OpenXmlPowerTools
             }
             part.PutXDocument();
         }
-
-
-
-
-
-
-
-
     }
 
     internal class WithHierarchicalGroupingKey
@@ -3592,49 +2600,35 @@ namespace OpenXmlPowerTools
         public ComparisonUnitWord ComparisonUnitWord;
     }
 
-    //public abstract class ComparisonUnit : IEquatable<ComparisonUnit>
     public abstract class ComparisonUnit
     {
         public List<ComparisonUnit> Contents;
         public string SHA1Hash;
         public CorrelationStatus CorrelationStatus;
 
+        public IEnumerable<ComparisonUnit> Descendants()
+        {
+            List<ComparisonUnit> comparisonUnitList = new List<ComparisonUnit>();
+            DescendantsInternal(this, comparisonUnitList);
+            return comparisonUnitList;
+        }
+
+        public IEnumerable<ComparisonUnitAtom> DescendantContentAtoms()
+        {
+            return Descendants().OfType<ComparisonUnitAtom>();
+        }
+
+        private void DescendantsInternal(ComparisonUnit comparisonUnit, List<ComparisonUnit> comparisonUnitList)
+        {
+            foreach (var cu in comparisonUnit.Contents)
+            {
+                comparisonUnitList.Add(cu);
+                if (cu.Contents != null && cu.Contents.Any())
+                    DescendantsInternal(cu, comparisonUnitList);
+            }
+        }
+
         public abstract string ToString(int indent);
-
-        //public abstract bool Equals(ComparisonUnit other);
-
-        //public override bool Equals(Object obj)
-        //{
-        //    if (obj == null)
-        //        return false;
-
-        //    ComparisonUnit cuObj = obj as ComparisonUnit;
-        //    if (cuObj == null)
-        //        return false;
-        //    else
-        //        return Equals(cuObj);
-        //}
-
-        //public override int GetHashCode()
-        //{
-        //    return this.GetHashCode();
-        //}
-
-        //public static bool operator ==(ComparisonUnit comparisonUnit1, ComparisonUnit comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return comparisonUnit1.Equals(comparisonUnit2);
-        //}
-
-        //public static bool operator !=(ComparisonUnit comparisonUnit1, ComparisonUnit comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return !Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return !(comparisonUnit1.Equals(comparisonUnit2));
-        //}
 
         internal static object ComparisonUnitListToString(ComparisonUnit[] cul)
         {
@@ -3704,17 +2698,6 @@ namespace OpenXmlPowerTools
             R.pict,
         };
 
-        // TODO need to add all other elements that we should discard.
-        // go through standard, look for other things to ignore.
-        private static XName[] s_ElementsToIgnoreWhenComparing = new[] {
-            W.bookmarkStart,
-            W.bookmarkEnd,
-            W.commentRangeStart,
-            W.commentRangeEnd,
-            W.proofErr,
-        };
-
-
         public override string ToString(int indent)
         {
             var sb = new StringBuilder();
@@ -3723,244 +2706,6 @@ namespace OpenXmlPowerTools
                 sb.Append(comparisonUnitAtom.ToString(indent + 2) + Environment.NewLine);
             return sb.ToString();
         }
-
-        //public static string ComparisonUnitListToString(ComparisonUnit[] comparisonUnit)
-        //{
-        //    var sb = new StringBuilder();
-        //    sb.Append("Dumping ComparisonUnit List" + Environment.NewLine);
-        //    for (int i = 0; i < comparisonUnit.Length; i++)
-        //    {
-        //        sb.AppendFormat("  Comparison Unit: {0}", i).Append(Environment.NewLine);
-        //        var cug = comparisonUnit[i] as ComparisonUnitGroup;
-        //        if (cug != null)
-        //        {
-        //            foreach (var su in cug.Contents)
-        //            {
-        //                sb.Append(su.ToString(4));
-        //                sb.Append(Environment.NewLine);
-        //            }
-        //            continue;
-        //        }
-        //        var cuw = comparisonUnit[i] as ComparisonUnitWord;
-        //        if (cuw != null)
-        //        {
-        //            foreach (var su in cuw.Contents)
-        //            {
-        //                sb.Append(su.ToString(4));
-        //                sb.Append(Environment.NewLine);
-        //            }
-        //            continue;
-        //        }
-        //    }
-        //    var sbs = sb.ToString();
-        //    return sbs;
-        //}
-
-        //public override bool Equals(ComparisonUnit other)
-        //{
-        //    if (other == null)
-        //        return false;
-
-        //    var otherCUW = other as ComparisonUnitWord;
-
-        //    if (otherCUW == null)
-        //        return false;
-
-        //    if (this.Contents.OfType<ComparisonUnitAtom>().Any(c => c.ContentElement.Name == W.t) ||
-        //        otherCUW.Contents.OfType<ComparisonUnitAtom>().Any(c => c.ContentElement.Name == W.t))
-        //    {
-        //        var txt1 = this
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Where(c => c.ContentElement.Name == W.t)
-        //            .Select(c => c.ContentElement.Value)
-        //            .StringConcatenate();
-        //        var txt2 = otherCUW
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Where(c => c.ContentElement.Name == W.t)
-        //            .Select(c => c.ContentElement.Value)
-        //            .StringConcatenate();
-        //        if (txt1 != txt2)
-        //            return false;
-
-        //        var seq1 = this
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-        //        var seq2 = otherCUW
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-        //        if (seq1.Count() != seq2.Count())
-        //            return false;
-        //        return true;
-
-
-        //        //var zipped = seq1.Zip(seq2, (s1, s2) => new
-        //        //{
-        //        //    Cu1 = s1,
-        //        //    Cu2 = s2,
-        //        //});
-
-
-
-        //        // todo this needs to change - if not in the same cell, then they are never equal.
-        //        // but this may happen automatically - in theory, the new algorithm will never compare
-        //        // content in different cells.  We will never set content in different cells to equal.
-
-        //        // so the following test is not needed, I think.
-        //        // or it could look at the Unid of the ancestors, comparing the related Unid on the first element
-        //        // to the Unid on the second element, returning equals only in that circumstance.
-
-
-
-
-
-
-        //        /********************************************************************************************/
-
-
-
-
-
-
-        //        //var anyNotEqual = (zipped.Any(z =>
-        //        //{
-        //        //    var a1 = z.Cu1.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-        //        //    var a2 = z.Cu2.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-        //        //    return a1 != a2;
-        //        //}));
-        //        //if (anyNotEqual)
-        //        //    return false;
-        //        //return true;
-        //    }
-        //    else
-        //    {
-        //        var seq1 = this
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-        //        var seq2 = otherCUW
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-        //        if (seq1.Count() != seq2.Count())
-        //            return false;
-
-        //        var zipped = seq1.Zip(seq2, (s1, s2) => new
-        //        {
-        //            Cu1 = s1,
-        //            Cu2 = s2,
-        //        });
-        //        var anyNotEqual = (zipped.Any(z =>
-        //        {
-        //            if (z.Cu1.ContentElement.Name != z.Cu2.ContentElement.Name)
-        //                return true;
-        //            var a1 = z.Cu1.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-        //            var a2 = z.Cu2.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-        //            if (a1 != a2)
-        //                return true;
-        //            var name = z.Cu1.ContentElement.Name;
-        //            if (name == M.oMath || name == M.oMathPara)
-        //            {
-        //                var equ = XNode.DeepEquals(z.Cu1.ContentElement, z.Cu2.ContentElement);
-        //                return !equ;
-        //            }
-        //            if (name == W.drawing)
-        //            {
-        //                var relationshipIds1 = z.Cu1.ContentElement
-        //                    .Descendants()
-        //                    .Attributes()
-        //                    .Where(a => s_RelationshipAttributeNames.Contains(a.Name))
-        //                    .Select(a => (string)a)
-        //                    .ToList();
-        //                var relationshipIds2 = z.Cu2.ContentElement
-        //                    .Descendants()
-        //                    .Attributes()
-        //                    .Where(a => s_RelationshipAttributeNames.Contains(a.Name))
-        //                    .Select(a => (string)a)
-        //                    .ToList();
-        //                if (relationshipIds1.Count() != relationshipIds2.Count())
-        //                    return true;
-        //                var sourcePart1 = this.Contents.OfType<ComparisonUnitAtom>().First().Part;
-        //                var sourcePart2 = otherCUW.Contents.OfType<ComparisonUnitAtom>().First().Part;
-        //                var zipped2 = relationshipIds1.Zip(relationshipIds2, (rid1, rid2) =>
-        //                {
-        //                    return new
-        //                    {
-        //                        RelId1 = rid1,
-        //                        RelId2 = rid2,
-        //                    };
-        //                });
-        //                foreach (var pair in zipped2)
-        //                {
-        //                    var oxp1 = sourcePart1.GetPartById(pair.RelId1);
-        //                    if (oxp1 == null)
-        //                        throw new FileFormatException("Invalid WordprocessingML Document");
-        //                    var oxp2 = sourcePart2.GetPartById(pair.RelId2);
-        //                    if (oxp2 == null)
-        //                        throw new FileFormatException("Invalid WordprocessingML Document");
-        //                    byte[] buffer1 = new byte[1024];
-        //                    byte[] buffer2 = new byte[1024];
-        //                    using (var str1 = oxp1.GetStream())
-        //                    using (var str2 = oxp2.GetStream())
-        //                    {
-        //                        var ret1 = str1.Read(buffer1, 0, buffer1.Length);
-        //                        var ret2 = str2.Read(buffer2, 0, buffer2.Length);
-        //                        if (ret1 == 0 && ret2 == 0)
-        //                            continue;
-        //                        if (ret1 != ret2)
-        //                            return true;
-        //                        for (int i = 0; i < buffer1.Length; i++)
-        //                            if (buffer1[i] != buffer2[i])
-        //                                return true;
-        //                        continue;
-        //                    }
-        //                }
-        //                return false;
-        //            }
-        //            return false;
-        //        }));
-        //        if (anyNotEqual)
-        //            return false;
-        //        return true;
-        //    }
-        //}
-
-        //public override bool Equals(Object obj)
-        //{
-        //    if (obj == null)
-        //        return false;
-
-        //    ComparisonUnit cuObj = obj as ComparisonUnit;
-        //    if (cuObj == null)
-        //        return false;
-        //    else
-        //        return Equals(cuObj);
-        //}
-
-        //public override int GetHashCode()
-        //{
-        //    return this.GetHashCode();
-        //}
-
-        //public static bool operator ==(ComparisonUnitWord comparisonUnit1, ComparisonUnitWord comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return comparisonUnit1.Equals(comparisonUnit2);
-        //}
-
-        //public static bool operator !=(ComparisonUnitWord comparisonUnit1, ComparisonUnitWord comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return !Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return !(comparisonUnit1.Equals(comparisonUnit2));
-        //}
-
     }
 
     class WmlComparerUtil
@@ -4082,56 +2827,6 @@ namespace OpenXmlPowerTools
                   .Append(item.ComparisonUnitAtom.ToString(0) + Environment.NewLine);
             return sb.ToString();
         }
-
-        //public override bool Equals(ComparisonUnit other)
-        //{
-        //    if (other == null)
-        //        return false;
-
-        //    var otherCA = other as ComparisonUnitAtom;
-
-        //    if (otherCA == null)
-        //        return false;
-
-        //    // todo need to implement this.
-        //    if (this.ContentElement.Value == otherCA.ContentElement.Value)
-        //        return true;
-        //    return false;
-        //}
-
-        //public override bool Equals(Object obj)
-        //{
-        //    if (obj == null)
-        //        return false;
-
-        //    ComparisonUnit cuObj = obj as ComparisonUnit;
-        //    if (cuObj == null)
-        //        return false;
-        //    else
-        //        return Equals(cuObj);
-        //}
-
-        //public override int GetHashCode()
-        //{
-        //    return this.GetHashCode();
-        //}
-
-        //public static bool operator ==(ComparisonUnitAtom comparisonUnit1, ComparisonUnitAtom comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return comparisonUnit1.Equals(comparisonUnit2);
-        //}
-
-        //public static bool operator !=(ComparisonUnitAtom comparisonUnit1, ComparisonUnitAtom comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return !Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return !(comparisonUnit1.Equals(comparisonUnit2));
-        //}
-
     }
 
     internal enum ComparisonUnitGroupType
@@ -4194,399 +2889,7 @@ namespace OpenXmlPowerTools
                 sb.Append(comparisonUnitAtom.ToString(indent + 2));
             return sb.ToString();
         }
-
-        // A ComparisonUnitGroup never equals a ComparisonUnitWord - a table ever equals a paragraph or run.
-
-        // If a ComparisonUnitGroup is a table, it equals another ComparisonUnitGroup if the two tables have at least one RSID in common.
-        // We use the RSID values of the row for this purpose.
-
-        // If a ComparisonUnitGroup is a row, it equals another row if all cells in both rows match exactly.
-
-        // Note that equating a ComparisonUnitGroup to another ComparisonUnitGroup does not mean that
-        // there are no differences between the tables.  Those differences will be processed separately,
-        // where cells are compared to cells.
-        
-        // This operator overload is only used for establishing correlated content for a 'story', where a story is
-        // the main document body, a cell, a text box, a footnote, or an endnote.  Currently, this module does not
-        // support headers and footers, which are the content parts that are not processed by this module.
-
-        // Interesting to note that this module will never compare the ComparisonUnitGroups for rows and cells to anything.
-        // However, it is important to have those - we will potentially use them to generate markup for deleted and inserted
-        // rows.
-
-        //public override bool Equals(ComparisonUnit other)
-        //{
-        //    if (other == null)
-        //        return false;
-
-        //    var otherCUG = other as ComparisonUnitGroup;
-
-        //    if (otherCUG == null)
-        //        return false;
-
-        //    if (this.ComparisonUnitGroupType == OpenXmlPowerTools.ComparisonUnitGroupType.Table)
-        //    {
-        //        var thisRsids = GetRsidsForComparisonUnitGroup(this);
-        //        var otherRsids = GetRsidsForComparisonUnitGroup(otherCUG);
-        //        return thisRsids.Any(t => otherRsids.Any(z => z == t));
-        //    }
-
-        //    if (this.ComparisonUnitGroupType == OpenXmlPowerTools.ComparisonUnitGroupType.Row)
-        //    {
-        //        var row1cells = this.Contents.OfType<ComparisonUnitGroup>();
-        //        var row2cells = otherCUG.Contents.OfType<ComparisonUnitGroup>();
-        //        if (row1cells.Zip(row2cells, (c1, c2) =>
-        //            {
-        //                return new
-        //                {
-        //                    C1 = c1,
-        //                    C2 = c2,
-        //                };
-        //            })
-        //            .Any(z => z.C1 != z.C2))
-        //            return false;
-        //        return true;
-        //    }
-
-        //    if (this.ComparisonUnitGroupType == OpenXmlPowerTools.ComparisonUnitGroupType.Cell)
-        //    {
-        //        var c1Words = this.Contents.OfType<ComparisonUnitWord>();
-        //        var c2Words = otherCUG.Contents.OfType<ComparisonUnitWord>();
-        //        if (c1Words.Zip(c2Words, (w1, w2) =>
-        //            {
-        //                return new
-        //                {
-        //                    W1 = w1,
-        //                    W2 = w2,
-        //                };
-        //            })
-        //            .Any(z => z.W1 != z.W2))
-        //            return false;
-        //        return true;
-        //    }
-
-        //    throw new OpenXmlPowerToolsException("Internal error: should not reach here");
-        //}
-
-        //private static string[] GetRsidsForComparisonUnitGroup(ComparisonUnitGroup group)
-        //{
-        //    return group
-        //        .Contents
-        //        .Select(c1 => ((ComparisonUnitGroup)c1).Contents
-        //            .Select(c2 => ((ComparisonUnitGroup)c2).Contents
-        //                .OfType<ComparisonUnitWord>())
-        //            .SelectMany(m => m))
-        //        .SelectMany(m => m)
-        //        .Select(cuw => cuw
-        //            .Contents
-        //            .OfType<ComparisonUnitAtom>()
-        //            .Select(con => con.AncestorElements.Reverse().FirstOrDefault(a => a.Name == W.tr)))
-        //        .SelectMany(m => m)
-        //        .Attributes(W.rsidR)
-        //        .Select(a => (string)a)
-        //        .Distinct()
-        //        .ToArray();
-        //}
-
-        //// no ComparisonUnitGroup ever equals another ComparisonUnitGroup or ComparisonUnitWord
-        //public override bool Equals(Object obj)
-        //{
-        //    if (obj == null)
-        //        return false;
-
-        //    ComparisonUnit cuObj = obj as ComparisonUnit;
-        //    if (cuObj == null)
-        //        return false;
-        //    else
-        //        return Equals(cuObj);
-        //}
-
-        //public override int GetHashCode()
-        //{
-        //    return this.GetHashCode();
-        //}
-
-        //public static bool operator ==(ComparisonUnitGroup comparisonUnit1, ComparisonUnitGroup comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return comparisonUnit1.Equals(comparisonUnit2);
-        //}
-
-        //public static bool operator !=(ComparisonUnitGroup comparisonUnit1, ComparisonUnitGroup comparisonUnit2)
-        //{
-        //    if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-        //        return !Object.Equals(comparisonUnit1, comparisonUnit2);
-
-        //    return !(comparisonUnit1.Equals(comparisonUnit2));
-        //}
     }
-
-
-
-
-#if false
-    // old code
-    internal class ComparisonUnit : IEquatable<ComparisonUnit>
-    {
-        public List<ComparisonUnitAtom> Contents;
-        public ComparisonUnit(IEnumerable<ComparisonUnitAtom> ComparisonUnitAtomList)
-        {
-            Contents = ComparisonUnitAtomList.ToList();
-        }
-
-        public static XName[] s_ElementsWithRelationshipIds = new XName[] {
-            A.blip,
-            A.hlinkClick,
-            A.relIds,
-            C.chart,
-            C.externalData,
-            C.userShapes,
-            DGM.relIds,
-            O.OLEObject,
-            VML.fill,
-            VML.imagedata,
-            VML.stroke,
-            W.altChunk,
-            W.attachedTemplate,
-            W.control,
-            W.dataSource,
-            W.embedBold,
-            W.embedBoldItalic,
-            W.embedItalic,
-            W.embedRegular,
-            W.footerReference,
-            W.headerReference,
-            W.headerSource,
-            W.hyperlink,
-            W.printerSettings,
-            W.recipientData,
-            W.saveThroughXslt,
-            W.sourceFileName,
-            W.src,
-            W.subDoc,
-            WNE.toolbarData,
-        };
-
-        public static XName[] s_RelationshipAttributeNames = new XName[] {
-            R.embed,
-            R.link,
-            R.id,
-            R.cs,
-            R.dm,
-            R.lo,
-            R.qs,
-            R.href,
-            R.pict,
-        };
-
-        public string ToString(int indent)
-        {
-            var sb = new StringBuilder();
-            foreach (var ComparisonUnitAtom in Contents)
-                sb.Append(ComparisonUnitAtom.ToString(indent) + Environment.NewLine);
-            return sb.ToString();
-        }
-
-        public static string ComparisonUnitListToString(ComparisonUnit[] comparisonUnit)
-        {
-            var sb = new StringBuilder();
-            sb.Append("Dumping ComparisonUnit List" + Environment.NewLine);
-            for (int i = 0; i < comparisonUnit.Length; i++)
-            {
-                sb.AppendFormat("  Comparison Unit: {0}", i).Append(Environment.NewLine);
-                foreach (var su in comparisonUnit[i].Contents)
-                {
-                    sb.Append(su.ToString(4));
-                    sb.Append(Environment.NewLine);
-                }
-            }
-            var sbs = sb.ToString();
-            return sbs;
-        }
-
-        // TODO need to add all other elements that we should discard.
-        // end notes?
-        // foot notes?
-        // go through standard, look for other things to ignore.
-        private static XName[] s_ElementsToIgnoreWhenComparing = new[] {
-            W.bookmarkStart,
-            W.bookmarkEnd,
-            W.commentRangeStart,
-            W.commentRangeEnd,
-            W.proofErr,
-        };
-
-        public bool Equals(ComparisonUnit other)
-        {
-            if (other == null)
-                return false;
-
-            if (this.Contents.Any(c => c.ContentElement.Name == W.t) ||
-                other.Contents.Any(c => c.ContentElement.Name == W.t))
-            {
-                var txt1 = this
-                    .Contents
-                    .Where(c => c.ContentElement.Name == W.t)
-                    .Select(c => c.ContentElement.Value)
-                    .StringConcatenate();
-                var txt2 = other
-                    .Contents
-                    .Where(c => c.ContentElement.Name == W.t)
-                    .Select(c => c.ContentElement.Value)
-                    .StringConcatenate();
-                if (txt1 != txt2)
-                    return false;
-
-                var seq1 = this
-                    .Contents
-                    .Where(c => ! s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-                var seq2 = other
-                    .Contents
-                    .Where(c => ! s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-                if (seq1.Count() != seq2.Count())
-                    return false;
-                var zipped = seq1.Zip(seq2, (s1, s2) => new
-                {
-                    Cu1 = s1,
-                    Cu2 = s2,
-                });
-                var anyNotEqual = (zipped.Any(z =>
-                    {
-                        var a1 = z.Cu1.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-                        var a2 = z.Cu2.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-                        return a1 != a2;
-                    }));
-                if (anyNotEqual)
-                    return false;
-                return true;
-            }
-            else
-            {
-                var seq1 = this
-                    .Contents
-                    .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-                var seq2 = other
-                    .Contents
-                    .Where(c => !s_ElementsToIgnoreWhenComparing.Contains(c.ContentElement.Name));
-                if (seq1.Count() != seq2.Count())
-                    return false;
-                
-                var zipped = seq1.Zip(seq2, (s1, s2) => new
-                {
-                    Cu1 = s1,
-                    Cu2 = s2,
-                });
-                var anyNotEqual = (zipped.Any(z =>
-                {
-                    if (z.Cu1.ContentElement.Name != z.Cu2.ContentElement.Name)
-                        return true;
-                    var a1 = z.Cu1.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-                    var a2 = z.Cu2.AncestorElements.Select(a => a.Name.ToString() + "|").StringConcatenate();
-                    if (a1 != a2)
-                        return true;
-                    var name = z.Cu1.ContentElement.Name;
-                    if (name == M.oMath || name == M.oMathPara)
-                    {
-                        var equ = XNode.DeepEquals(z.Cu1.ContentElement, z.Cu2.ContentElement);
-                        return !equ;
-                    }
-                    if (name == W.drawing)
-                    {
-                        var relationshipIds1 = z.Cu1.ContentElement
-                            .Descendants()
-                            .Attributes()
-                            .Where(a => s_RelationshipAttributeNames.Contains(a.Name))
-                            .Select(a => (string)a)
-                            .ToList();
-                        var relationshipIds2 = z.Cu2.ContentElement
-                            .Descendants()
-                            .Attributes()
-                            .Where(a => s_RelationshipAttributeNames.Contains(a.Name))
-                            .Select(a => (string)a)
-                            .ToList();
-                        if (relationshipIds1.Count() != relationshipIds2.Count())
-                            return true;
-                        var sourcePart1 = this.Contents.First().Part;
-                        var sourcePart2 = other.Contents.First().Part;
-                        var zipped2 = relationshipIds1.Zip(relationshipIds2, (rid1, rid2) =>
-                            {
-                                return new
-                                {
-                                    RelId1 = rid1,
-                                    RelId2 = rid2,
-                                };
-                            });
-                        foreach (var pair in zipped2)
-                        {
-                            var oxp1 = sourcePart1.GetPartById(pair.RelId1);
-                            if (oxp1 == null)
-                                throw new FileFormatException("Invalid WordprocessingML Document");
-                            var oxp2 = sourcePart2.GetPartById(pair.RelId2);
-                            if (oxp2 == null)
-                                throw new FileFormatException("Invalid WordprocessingML Document");
-                            byte[] buffer1 = new byte[1024];
-                            byte[] buffer2 = new byte[1024];
-                            using (var str1 = oxp1.GetStream())
-                            using (var str2 = oxp2.GetStream())
-                            {
-                                var ret1 = str1.Read(buffer1, 0, buffer1.Length);
-                                var ret2 = str2.Read(buffer2, 0, buffer2.Length);
-                                if (ret1 == 0 && ret2 == 0)
-                                    continue;
-                                if (ret1 != ret2)
-                                    return true;
-                                for (int i = 0; i < buffer1.Length; i++)
-                                    if (buffer1[i] != buffer2[i])
-                                        return true;
-                                continue;
-                            }
-                        }
-                        return false;
-                    }
-                    return false;
-                }));
-                if (anyNotEqual)
-                    return false;
-                return true;
-            }
-        }
-
-        public override bool Equals(Object obj)
-        {
-            if (obj == null)
-                return false;
-
-            ComparisonUnit cuObj = obj as ComparisonUnit;
-            if (cuObj == null)
-                return false;
-            else
-                return Equals(cuObj);
-        }
-
-        public override int GetHashCode()
-        {
-            return this.GetHashCode();
-        }
-
-        public static bool operator ==(ComparisonUnit comparisonUnit1, ComparisonUnit comparisonUnit2)
-        {
-            if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-                return Object.Equals(comparisonUnit1, comparisonUnit2);
-
-            return comparisonUnit1.Equals(comparisonUnit2);
-        }
-
-        public static bool operator !=(ComparisonUnit comparisonUnit1, ComparisonUnit comparisonUnit2)
-        {
-            if (((object)comparisonUnit1) == null || ((object)comparisonUnit2) == null)
-                return !Object.Equals(comparisonUnit1, comparisonUnit2);
-
-            return !(comparisonUnit1.Equals(comparisonUnit2));
-        }
-    }
-#endif
 
     public enum CorrelationStatus
     {
@@ -4633,7 +2936,7 @@ namespace OpenXmlPowerTools
                 }
                 if (ComparisonUnitArray2 != null)
                 {
-                    sb.Append(indentString + "ComparisonUnitList2 =====" + Environment.NewLine);
+                    sb.Append(indentString4 + "ComparisonUnitList2 =====" + Environment.NewLine);
                     foreach (var item in ComparisonUnitArray2)
                         sb.Append(item.ToString(6) + Environment.NewLine);
                 }

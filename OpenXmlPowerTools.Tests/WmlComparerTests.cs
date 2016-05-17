@@ -29,11 +29,14 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Validation;
 using OpenXmlPowerTools;
 using Xunit;
+using System.Diagnostics;
 
 namespace OxPt
 {
     public class WcTests
     {
+        public static bool s_OpenWord = false;
+
         public static string[] ExpectedErrors = new string[] {
             "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstRow' attribute is not declared.",
             "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:lastRow' attribute is not declared.",
@@ -125,6 +128,18 @@ namespace OxPt
             if (!source2CopiedToDestDocx.Exists)
                 File.Copy(source2Docx.FullName, source2CopiedToDestDocx.FullName);
 
+            /************************************************************************************************************************/
+
+            if (s_OpenWord)
+            {
+                FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
+                var path = new DirectoryInfo(@"C:\Users\Eric\Documents\WindowsPowerShellModules\Open-Xml-PowerTools\TestFiles");
+                WordRunner.RunWord(wordExe.FullName, source2CopiedToDestDocx);
+                WordRunner.RunWord(wordExe.FullName, source1CopiedToDestDocx);
+            }
+
+            /************************************************************************************************************************/
+
             var before = source1CopiedToDestDocx.Name.Replace(".docx", "");
             var after = source2CopiedToDestDocx.Name.Replace(".docx", "");
             var docxWithRevisionsFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, before + "-COMPARE-" + after + ".docx"));
@@ -133,6 +148,10 @@ namespace OxPt
             WmlDocument source2Wml = new WmlDocument(source2CopiedToDestDocx.FullName);
             WmlComparerSettings settings = new WmlComparerSettings();
             WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
+            
+            if (comparedWml == null)
+                return;
+
             comparedWml.SaveAs(docxWithRevisionsFi.FullName);
 
             using (MemoryStream ms = new MemoryStream())
@@ -158,7 +177,6 @@ namespace OxPt
 #else
                         sb.Append("            \"" + err.Description + "\"," + Environment.NewLine);
 #endif
-
                     }
                     var sbs = sb.ToString();
                     Assert.Equal("", sbs);
@@ -285,6 +303,30 @@ namespace OxPt
                         Assert.Equal("", sbs);
                     }
                 }
+            }
+        }
+    }
+
+    public class WordRunner
+    {
+        public static void RunWord(string executablePath, FileInfo docxPath)
+        {
+            if (File.Exists(executablePath))
+            {
+                using (Process proc = new Process())
+                {
+                    proc.StartInfo.FileName = executablePath;
+                    proc.StartInfo.Arguments = docxPath.FullName;
+                    proc.StartInfo.WorkingDirectory = docxPath.DirectoryName;
+                    proc.StartInfo.UseShellExecute = false;
+                    proc.StartInfo.RedirectStandardOutput = true;
+                    proc.StartInfo.RedirectStandardError = true;
+                    proc.Start();
+                }
+            }
+            else
+            {
+                throw new ArgumentException("Invalid executable path.", "exePath");
             }
         }
     }
