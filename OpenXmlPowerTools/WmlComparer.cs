@@ -345,11 +345,15 @@ namespace OpenXmlPowerTools
                 cs.CorrelationStatus = CorrelationStatus.Equal;
 
                 cs.ComparisonUnitArray1 = unknown
+                    .ComparisonUnitArray1
+                    .Take(countCommonAtBeginning)
+                    .ToArray();
+
+                cs.ComparisonUnitArray2 = unknown
                     .ComparisonUnitArray2
                     .Take(countCommonAtBeginning)
                     .ToArray();
 
-                cs.ComparisonUnitArray2 = cs.ComparisonUnitArray1;
                 newSequence.Add(cs);
             }
 
@@ -396,11 +400,15 @@ namespace OpenXmlPowerTools
                 cs.CorrelationStatus = CorrelationStatus.Equal;
 
                 cs.ComparisonUnitArray1 = unknown
+                    .ComparisonUnitArray1
+                    .Skip(countCommonAtBeginning + middleLeft.Length)
+                    .ToArray();
+
+                cs.ComparisonUnitArray2 = unknown
                     .ComparisonUnitArray2
                     .Skip(countCommonAtBeginning + middleRight.Length)
                     .ToArray();
 
-                cs.ComparisonUnitArray2 = cs.ComparisonUnitArray1;
                 newSequence.Add(cs);
             }
             return newSequence;
@@ -534,7 +542,7 @@ namespace OpenXmlPowerTools
                 .SelectMany(m => m)
                 .ToList();
 
-            if (true)
+            if (s_DumpLog)
             {
                 var sb = new StringBuilder();
                 foreach (var item in listOfComparisonUnitAtoms)
@@ -595,6 +603,15 @@ namespace OpenXmlPowerTools
                         }
                     }
                 }
+            }
+
+            if (s_DumpLog)
+            {
+                var sb = new StringBuilder();
+                foreach (var item in listOfComparisonUnitAtoms)
+                    sb.Append(item.ToString()).Append(Environment.NewLine);
+                var sbs = sb.ToString();
+                // TestUtil.NotePad(sbs);
             }
 
             // and then finally can generate the document with revisions
@@ -840,6 +857,7 @@ namespace OpenXmlPowerTools
                     }
                     sb.Append(Environment.NewLine);
                 }
+                var sbs = sb.ToString();
             }
 
             var elementList = grouped
