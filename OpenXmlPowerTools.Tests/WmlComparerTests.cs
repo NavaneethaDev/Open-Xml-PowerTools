@@ -35,7 +35,7 @@ namespace OxPt
 {
     public class WcTests
     {
-        public static bool s_OpenWord = false;
+        public static bool s_OpenWord = true;
 
         public static string[] ExpectedErrors = new string[] {
             "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstRow' attribute is not declared.",
@@ -105,6 +105,7 @@ namespace OxPt
         [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-1.docx")]
         [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-2.docx")]
         [InlineData("WC021-Math-Before-1.docx", "WC021-Math-After-1.docx")]
+        [InlineData("WC021-Math-Before-2.docx", "WC021-Math-After-2.docx")]
         [InlineData("WC022-Image-Math-Para-Before.docx", "WC022-Image-Math-Para-After.docx")]
         [InlineData("WC023-Table-4-Row-Image-Before.docx", "WC023-Table-4-Row-Image-After-Delete-1-Row.docx")]
         [InlineData("WC024-Table-Before.docx", "WC024-Table-After.docx")]
@@ -113,6 +114,10 @@ namespace OxPt
         [InlineData("WC026-Long-Table-Before.docx", "WC026-Long-Table-After-1.docx")]
         [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-1.docx")]
         [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-2.docx")]
+        [InlineData("WC030-Image-Math-Before.docx", "WC030-Image-Math-After.docx")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
         //[InlineData("", "")]
         //[InlineData("", "")]
 
@@ -134,8 +139,8 @@ namespace OxPt
             {
                 FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
                 var path = new DirectoryInfo(@"C:\Users\Eric\Documents\WindowsPowerShellModules\Open-Xml-PowerTools\TestFiles");
-                WordRunner.RunWord(wordExe.FullName, source2CopiedToDestDocx);
-                WordRunner.RunWord(wordExe.FullName, source1CopiedToDestDocx);
+                WordRunner.RunWord(wordExe, source2CopiedToDestDocx);
+                WordRunner.RunWord(wordExe, source1CopiedToDestDocx);
             }
 
             /************************************************************************************************************************/
@@ -148,10 +153,6 @@ namespace OxPt
             WmlDocument source2Wml = new WmlDocument(source2CopiedToDestDocx.FullName);
             WmlComparerSettings settings = new WmlComparerSettings();
             WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
-            
-            if (comparedWml == null)
-                return;
-
             comparedWml.SaveAs(docxWithRevisionsFi.FullName);
 
             using (MemoryStream ms = new MemoryStream())
@@ -161,27 +162,38 @@ namespace OxPt
                 {
                     OpenXmlValidator validator = new OpenXmlValidator();
                     var errors = validator.Validate(wDoc).Where(e => !ExpectedErrors.Contains(e.Description));
-                    if (errors.Count() == 0)
-                        return;
-
-                    var ind = "  ";
-                    var sb = new StringBuilder();
-                    foreach (var err in errors)
+                    if (errors.Count() > 0)
                     {
+
+                        var ind = "  ";
+                        var sb = new StringBuilder();
+                        foreach (var err in errors)
+                        {
 #if true
-                        sb.Append("Error" + Environment.NewLine);
-                        sb.Append(ind + "ErrorType: " + err.ErrorType.ToString() + Environment.NewLine);
-                        sb.Append(ind + "Description: " + err.Description + Environment.NewLine);
-                        sb.Append(ind + "Part: " + err.Part.Uri.ToString() + Environment.NewLine);
-                        sb.Append(ind + "XPath: " + err.Path.XPath + Environment.NewLine);
+                            sb.Append("Error" + Environment.NewLine);
+                            sb.Append(ind + "ErrorType: " + err.ErrorType.ToString() + Environment.NewLine);
+                            sb.Append(ind + "Description: " + err.Description + Environment.NewLine);
+                            sb.Append(ind + "Part: " + err.Part.Uri.ToString() + Environment.NewLine);
+                            sb.Append(ind + "XPath: " + err.Path.XPath + Environment.NewLine);
 #else
                         sb.Append("            \"" + err.Description + "\"," + Environment.NewLine);
 #endif
+                        }
+                        var sbs = sb.ToString();
+                        Assert.Equal("", sbs);
                     }
-                    var sbs = sb.ToString();
-                    Assert.Equal("", sbs);
                 }
             }
+
+            /************************************************************************************************************************/
+
+            if (s_OpenWord)
+            {
+                FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
+                WordRunner.RunWord(wordExe, docxWithRevisionsFi);
+            }
+
+            /************************************************************************************************************************/
         }
 
         [Theory]
@@ -309,13 +321,13 @@ namespace OxPt
 
     public class WordRunner
     {
-        public static void RunWord(string executablePath, FileInfo docxPath)
+        public static void RunWord(FileInfo executablePath, FileInfo docxPath)
         {
-            if (File.Exists(executablePath))
+            if (executablePath.Exists)
             {
                 using (Process proc = new Process())
                 {
-                    proc.StartInfo.FileName = executablePath;
+                    proc.StartInfo.FileName = executablePath.FullName;
                     proc.StartInfo.Arguments = docxPath.FullName;
                     proc.StartInfo.WorkingDirectory = docxPath.DirectoryName;
                     proc.StartInfo.UseShellExecute = false;
@@ -326,7 +338,7 @@ namespace OxPt
             }
             else
             {
-                throw new ArgumentException("Invalid executable path.", "exePath");
+                throw new ArgumentException("Invalid executable path.", "executablePath");
             }
         }
     }

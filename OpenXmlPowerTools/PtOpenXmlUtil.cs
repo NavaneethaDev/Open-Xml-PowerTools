@@ -5404,6 +5404,7 @@ namespace OpenXmlPowerTools
     {
         public static XNamespace wp14 =
             "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing";
+        public static XName anchorId = wp14 + "anchorId";
         public static XName editId = wp14 + "editId";
         public static XName pctHeight = wp14 + "pctHeight";
         public static XName pctPosVOffset = wp14 + "pctPosVOffset";

@@ -55,8 +55,6 @@ namespace OxPt
         //[InlineData("", 0)]
         //[InlineData("", 0)]
         //[InlineData("", 0)]
-            // todo needs rewritten
-
         
         public void CA001_ContentAtoms(string name, int contentAtomCount)
         {
