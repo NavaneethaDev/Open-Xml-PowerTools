@@ -1,4 +1,5 @@
-﻿#define SHORT_UNID
+﻿//#define SHORT_UNID
+#undef SHORT_UNID
 
 // Test
 // - endNotes
@@ -506,7 +507,7 @@ namespace OpenXmlPowerTools
 
             var correlatedSequence = Lcs(cu1, cu2, settings);
 
-            if (s_True)
+            if (s_DumpLog)
             {
                 var sb = new StringBuilder();
                 foreach (var item in correlatedSequence)
@@ -690,7 +691,7 @@ namespace OpenXmlPowerTools
                 }
             }
 
-            if (s_True)
+            if (s_DumpLog)
             {
                 var sb = new StringBuilder();
                 foreach (var item in listOfComparisonUnitAtoms)
@@ -856,7 +857,7 @@ namespace OpenXmlPowerTools
         {
             // fabricate new MainDocumentPart from correlatedSequence
 
-            if (s_True)
+            if (s_DumpLog)
             {
                 //dump out content atoms
                 var sb = new StringBuilder();
@@ -942,7 +943,7 @@ namespace OpenXmlPowerTools
                     return unid;
                 });
 
-            if (s_True)
+            if (s_DumpLog)
             {
                 var sb = new StringBuilder();
                 foreach (var group in grouped)
@@ -1068,55 +1069,6 @@ namespace OpenXmlPowerTools
                             }
                         }
 
-#if false
-                        XElement pPr = null;
-                        ComparisonUnitAtom pPrComparisonUnitAtom = null;
-                        var newParaPropsGroup = groupedChildren
-                            .FirstOrDefault(gc => gc.First().ContentElement.Name == W.pPr);
-                        if (newParaPropsGroup != null)
-                        {
-                            pPrComparisonUnitAtom = newParaPropsGroup.FirstOrDefault();
-                            if (pPrComparisonUnitAtom != null)
-                            {
-                                pPr = new XElement(pPrComparisonUnitAtom.ContentElement); // clone so we can change it
-                                if (pPrComparisonUnitAtom.CorrelationStatus == CorrelationStatus.Deleted)
-                                    pPr.Elements(W.sectPr).Remove(); // for now, don't move sectPr from old document to new document.
-                            }
-                        }
-                        if (pPrComparisonUnitAtom != null)
-                        {
-                            if (pPr == null)
-                                pPr = new XElement(W.pPr);
-                            if (pPrComparisonUnitAtom.CorrelationStatus == CorrelationStatus.Deleted)
-                            {
-                                XElement rPr = pPr.Element(W.rPr);
-                                if (rPr == null)
-                                    rPr = new XElement(W.rPr);
-                                rPr.Add(new XElement(W.del,
-                                    new XAttribute(W.author, settings.AuthorForRevisions),
-                                    new XAttribute(W.id, s_MaxId++),
-                                    new XAttribute(W.date, settings.DateTimeForRevisions)));
-                                if (pPr.Element(W.rPr) != null)
-                                    pPr.Element(W.rPr).ReplaceWith(rPr);
-                                else
-                                    pPr.AddFirst(rPr);
-                            }
-                            else if (pPrComparisonUnitAtom.CorrelationStatus == CorrelationStatus.Inserted)
-                            {
-                                XElement rPr = pPr.Element(W.rPr);
-                                if (rPr == null)
-                                    rPr = new XElement(W.rPr);
-                                rPr.Add(new XElement(W.ins,
-                                    new XAttribute(W.author, settings.AuthorForRevisions),
-                                    new XAttribute(W.id, s_MaxId++),
-                                    new XAttribute(W.date, settings.DateTimeForRevisions)));
-                                if (pPr.Element(W.rPr) != null)
-                                    pPr.Element(W.rPr).ReplaceWith(rPr);
-                                else
-                                    pPr.AddFirst(rPr);
-                            }
-                        }
-#endif
                         var newPara = new XElement(W.p,
                             ancestorBeingConstructed.Attributes(),
                             pPr, newChildElements);
@@ -1324,7 +1276,7 @@ namespace OpenXmlPowerTools
 
             while (true)
             {
-                if (s_True)
+                if (s_DumpLog)
                 {
                     var sb = new StringBuilder();
                     foreach (var item in csList)
@@ -1531,7 +1483,7 @@ namespace OpenXmlPowerTools
                 // return the new list of corr sequ
                 var leftOnlyWordsAndRows = leftLength == leftWords + leftRows;
                 var rightOnlyWordsAndRows = rightLength == rightWords + rightRows;
-                if ((leftWords > 0 || rightWords > 0) &&
+                if ((leftWords > 0 && rightWords > 0) &&
                     (leftRows > 0 || rightRows > 0) &&
                     (leftOnlyWordsAndRows && rightOnlyWordsAndRows))
                 {
@@ -1558,42 +1510,44 @@ namespace OpenXmlPowerTools
                         .ToArray();
                     int iLeft = 0;
                     int iRight = 0;
-                    if (leftGrouped[iLeft].Key == "Word" && rightGrouped[iRight].Key == "Row")
-                    {
-                        var deletedCorrelatedSequence = new CorrelatedSequence();
-                        deletedCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[iLeft].ToArray();
-                        deletedCorrelatedSequence.ComparisonUnitArray2 = null;
-                        deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
-                        newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
-                        ++iLeft;
-                    }
-                    else if (leftGrouped[iLeft].Key == "Row" && rightGrouped[iRight].Key == "Word")
-                    {
-                        var insertedCorrelatedSequence = new CorrelatedSequence();
-                        insertedCorrelatedSequence.ComparisonUnitArray1 = null;
-                        insertedCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[iRight].ToArray();
-                        insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
-                        newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
-                        ++iRight;
-                    }
-                    if (leftGrouped[iLeft].Key != "Row" || rightGrouped[iRight].Key != "Row")
-                        throw new OpenXmlPowerToolsException("Internal error");
+
+                    // create an unknown corr sequ for it.
+                    // increment both counters
+                    // if one is at end but the other is not, then tag the remaining content as inserted or deleted, and done.
+                    // if both are at the end, then done
+                    // return the new list of corr sequ
+
                     while (true)
                     {
-                        // create an unknown corr sequ for it.
-                        // increment both counters
-                        // if one is at end but the other is not, then tag the remaining content as inserted or deleted, and done.
-                        // if both are at the end, then done
-                        // return the new list of corr sequ
-
-                        var unknownCorrelatedSequence = new CorrelatedSequence();
-                        unknownCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[iLeft].ToArray();
-                        unknownCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[iRight].ToArray();
-                        unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
-                        newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
-
-                        ++iLeft;
-                        ++iRight;
+                        if ((leftGrouped[iLeft].Key == "Word" && rightGrouped[iRight].Key == "Word") ||
+                            (leftGrouped[iLeft].Key == "Row" && rightGrouped[iRight].Key == "Row"))
+                        {
+                            var unknownCorrelatedSequence = new CorrelatedSequence();
+                            unknownCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[iLeft].ToArray();
+                            unknownCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[iRight].ToArray();
+                            unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
+                            newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
+                            ++iLeft;
+                            ++iRight;
+                        }
+                        else if (leftGrouped[iLeft].Key == "Word" && rightGrouped[iRight].Key == "Row")
+                        {
+                            var deletedCorrelatedSequence = new CorrelatedSequence();
+                            deletedCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[iLeft].ToArray();
+                            deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                            deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                            newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                            ++iLeft;
+                        }
+                        else if (leftGrouped[iLeft].Key == "Row" && rightGrouped[iRight].Key == "Word")
+                        {
+                            var insertedCorrelatedSequence = new CorrelatedSequence();
+                            insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                            insertedCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[iRight].ToArray();
+                            insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                            newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+                            ++iRight;
+                        }
 
                         if (iLeft == leftGrouped.Length && iRight == rightGrouped.Length)
                             return newListOfCorrelatedSequence;
@@ -1611,7 +1565,8 @@ namespace OpenXmlPowerTools
                             }
                             return newListOfCorrelatedSequence;
                         }
-                        else // iLeft == leftGrouped.Length, i.e. there is content on the right but not on the left
+                        // there is content on the right but not on the left
+                        else if (iLeft == leftGrouped.Length) 
                         {
                             for (int j = iRight; j < rightGrouped.Length; j++)
                             {
@@ -1623,6 +1578,7 @@ namespace OpenXmlPowerTools
                             }
                             return newListOfCorrelatedSequence;
                         }
+                        // else continue on next round.
                     }
                 }
 
@@ -1690,8 +1646,8 @@ namespace OpenXmlPowerTools
                                 if (l == null)
                                 {
                                     var insertedCorrelatedSequence = new CorrelatedSequence();
-                                    insertedCorrelatedSequence.ComparisonUnitArray1 = l.Contents.ToArray();
-                                    insertedCorrelatedSequence.ComparisonUnitArray2 = null;
+                                    insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                                    insertedCorrelatedSequence.ComparisonUnitArray2 = r.Contents.ToArray();
                                     insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
                                     return new[] { insertedCorrelatedSequence };
                                 }

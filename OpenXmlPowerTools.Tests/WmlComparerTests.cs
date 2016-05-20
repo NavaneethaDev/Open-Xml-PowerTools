@@ -35,7 +35,7 @@ namespace OxPt
 {
     public class WcTests
     {
-        public static bool s_OpenWord = true;
+        public static bool s_OpenWord = false;
 
         public static string[] ExpectedErrors = new string[] {
             "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstRow' attribute is not declared.",
