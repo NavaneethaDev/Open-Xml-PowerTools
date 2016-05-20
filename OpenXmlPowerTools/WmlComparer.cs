@@ -1481,6 +1481,7 @@ namespace OpenXmlPowerTools
                 // if one is at end but the other is not, then tag the remaining content as inserted or deleted, and done.
                 // if both are at the end, then done
                 // return the new list of corr sequ
+
                 var leftOnlyWordsAndRows = leftLength == leftWords + leftRows;
                 var rightOnlyWordsAndRows = rightLength == rightWords + rightRows;
                 if ((leftWords > 0 && rightWords > 0) &&
