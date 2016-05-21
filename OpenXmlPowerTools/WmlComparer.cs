@@ -102,6 +102,92 @@ namespace OpenXmlPowerTools
             }
         }
 
+        public enum WmlComparerRevisionType
+        {
+            Inserted,
+            Deleted,
+        }
+
+        public class WmlComparerRevision
+        {
+            public WmlComparerRevisionType RevisionType;
+            public string Text;
+            public string Author;
+            public string Date;
+            public XElement ContentXElement;
+            public XElement RevisionXElement;
+        }
+
+        public static List<WmlComparerRevision> GetRevisions(WmlDocument source)
+        {
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(source.DocumentByteArray, 0, source.DocumentByteArray.Length);
+                using (WordprocessingDocument wDoc = WordprocessingDocument.Open(ms, true))
+                {
+                    TestForInvalidContent(wDoc);
+                    RemoveIrrelevantMarkup(wDoc);
+
+                    //AddSha1HashToBlockLevelContent(wDoc1);
+                    var atomList = WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart).ToArray();
+
+                    if (s_DumpLog)
+                    {
+                        var sb = new StringBuilder();
+                        foreach (var item in atomList)
+                            sb.Append(item.ToString() + Environment.NewLine);
+                        var sbs = sb.ToString();
+                        Console.WriteLine(sbs);
+                    }
+
+                    var grouped = atomList
+                        .GroupAdjacent(a =>
+                            {
+                                var key = a.CorrelationStatus.ToString();
+                                if (a.CorrelationStatus != CorrelationStatus.Equal)
+                                {
+                                    var rt = new XElement(a.RevTrackElement.Name,
+                                        new XAttribute(XNamespace.Xmlns + "w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"),
+                                        a.RevTrackElement.Attributes().Where(a2 => a2.Name != W.id));
+                                    key += rt.ToString(SaveOptions.DisableFormatting);
+                                }
+                                return key;
+                            })
+                        .ToList();
+
+                    var revisions = grouped
+                        .Where(k => k.Key != "Equal")
+                        .ToList();
+
+                    var wmlComparerRevisionList = revisions
+                        .Select(rg =>
+                        {
+                            var rev = new WmlComparerRevision();
+                            if (rg.Key == "Inserted")
+                                rev.RevisionType = WmlComparerRevisionType.Inserted;
+                            else if (rg.Key == "Deleted")
+                                rev.RevisionType = WmlComparerRevisionType.Deleted;
+                            var revTrackElement = rg.First().RevTrackElement;
+                            rev.Author = (string)revTrackElement.Attribute(W.author);
+                            rev.ContentXElement = rg.First().ContentElement;
+                            rev.Date = (string)revTrackElement.Attribute(W.date);
+                            rev.Text = rg
+                                .Select(rgc =>
+                                    {
+                                        if (rgc.ContentElement.Name == W.pPr)
+                                            return Environment.NewLine;
+                                        return rgc.ContentElement.Value;
+                                    })
+                                .StringConcatenate();
+                            return rev;
+                        })
+                        .ToList();
+
+                    return wmlComparerRevisionList;
+                }
+            }
+        }
+
         // prohibit
         // - altChunk
         // - subDoc
@@ -2715,13 +2801,25 @@ namespace OpenXmlPowerTools
         public XElement[] AncestorElements;
         public XElement ContentElement;
         public OpenXmlPart Part;
+        public XElement RevTrackElement;
 
         public ComparisonUnitAtom(XElement contentElement, XElement[] ancestorElements, OpenXmlPart part)
         {
             ContentElement = contentElement;
             AncestorElements = ancestorElements;
             Part = part;
-            CorrelationStatus = GetCorrelationStatusFromAncestors(AncestorElements);
+            RevTrackElement = GetRevisionTrackingElementFromAncestors(AncestorElements);
+            if (RevTrackElement == null)
+            {
+                CorrelationStatus = CorrelationStatus.Equal;
+            }
+            else
+            {
+                if (RevTrackElement.Name == W.del)
+                    CorrelationStatus = CorrelationStatus.Deleted;
+                else if (RevTrackElement.Name == W.ins)
+                    CorrelationStatus = CorrelationStatus.Inserted;
+            }
             string sha1Hash = (string)contentElement.Attribute(PtOpenXml.SHA1Hash);
             if (sha1Hash != null)
             {
@@ -2739,16 +2837,16 @@ namespace OpenXmlPowerTools
             return contentElement.Name.LocalName + contentElement.Value;
         }
 
-        private static CorrelationStatus GetCorrelationStatusFromAncestors(XElement[] ancestors)
+        private static XElement GetRevisionTrackingElementFromAncestors(XElement[] ancestors)
         {
-            var deleted = ancestors.Any(a => a.Name == W.del);
-            var inserted = ancestors.Any(a => a.Name == W.ins);
-            if (deleted)
-                return CorrelationStatus.Deleted;
-            else if (inserted)
-                return CorrelationStatus.Inserted;
-            else
-                return CorrelationStatus.Normal;
+            var revTrackElement = ancestors.FirstOrDefault(a => a.Name == W.del);
+            if (revTrackElement == null)
+                revTrackElement = ancestors.Where(a => a.Name == W.p).Elements(W.pPr).Elements(W.rPr).Elements(W.del).FirstOrDefault();
+            if (revTrackElement == null)
+                revTrackElement = ancestors.FirstOrDefault(a => a.Name == W.ins);
+            if (revTrackElement == null)
+                revTrackElement = ancestors.Where(a => a.Name == W.p).Elements(W.pPr).Elements(W.rPr).Elements(W.ins).FirstOrDefault();
+            return revTrackElement;
         }
         
         public override string ToString(int indent)
