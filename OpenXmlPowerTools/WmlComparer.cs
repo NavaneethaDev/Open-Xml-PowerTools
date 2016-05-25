@@ -6,6 +6,9 @@
 // - footNotes
 // - ptab is not adequately tested.
 
+// remove RemoveIrrelevantMarkup
+// can optimize Descendants
+
 /***************************************************************************
 
 Copyright (c) Microsoft Corporation 2016.
@@ -69,8 +72,8 @@ namespace OpenXmlPowerTools
                 {
                     TestForInvalidContent(wDoc1);
                     TestForInvalidContent(wDoc2);
-                    RemoveIrrelevantMarkup(wDoc1);
-                    RemoveIrrelevantMarkup(wDoc2);
+                    RemoveExistingPowerToolsMarkup(wDoc1);
+                    RemoveExistingPowerToolsMarkup(wDoc2);
 
                     SimplifyMarkupSettings msSettings = new SimplifyMarkupSettings()
                     {
@@ -118,6 +121,12 @@ namespace OpenXmlPowerTools
             public XElement RevisionXElement;
         }
 
+        private static XName[] RevElementsWithNoText = new XName[] {
+            M.oMath,
+            M.oMathPara,
+            W.drawing,
+        };
+
         public static List<WmlComparerRevision> GetRevisions(WmlDocument source)
         {
             using (MemoryStream ms = new MemoryStream())
@@ -126,7 +135,7 @@ namespace OpenXmlPowerTools
                 using (WordprocessingDocument wDoc = WordprocessingDocument.Open(ms, true))
                 {
                     TestForInvalidContent(wDoc);
-                    RemoveIrrelevantMarkup(wDoc);
+                    RemoveExistingPowerToolsMarkup(wDoc);
 
                     //AddSha1HashToBlockLevelContent(wDoc1);
                     var atomList = WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart).ToArray();
@@ -163,22 +172,26 @@ namespace OpenXmlPowerTools
                         .Select(rg =>
                         {
                             var rev = new WmlComparerRevision();
-                            if (rg.Key == "Inserted")
+                            if (rg.Key.StartsWith("Inserted"))
                                 rev.RevisionType = WmlComparerRevisionType.Inserted;
-                            else if (rg.Key == "Deleted")
+                            else if (rg.Key.StartsWith("Deleted"))
                                 rev.RevisionType = WmlComparerRevisionType.Deleted;
                             var revTrackElement = rg.First().RevTrackElement;
+                            rev.RevisionXElement = revTrackElement;
                             rev.Author = (string)revTrackElement.Attribute(W.author);
                             rev.ContentXElement = rg.First().ContentElement;
                             rev.Date = (string)revTrackElement.Attribute(W.date);
-                            rev.Text = rg
-                                .Select(rgc =>
-                                    {
-                                        if (rgc.ContentElement.Name == W.pPr)
-                                            return Environment.NewLine;
-                                        return rgc.ContentElement.Value;
-                                    })
-                                .StringConcatenate();
+                            if (!RevElementsWithNoText.Contains(rev.ContentXElement.Name))
+                            {
+                                rev.Text = rg
+                                    .Select(rgc =>
+                                        {
+                                            if (rgc.ContentElement.Name == W.pPr)
+                                                return Environment.NewLine;
+                                            return rgc.ContentElement.Value;
+                                        })
+                                    .StringConcatenate();
+                            }
                             return rev;
                         })
                         .ToList();
@@ -206,16 +219,8 @@ namespace OpenXmlPowerTools
             }
         }
 
-        private static void RemoveIrrelevantMarkup(WordprocessingDocument wDoc)
+        private static void RemoveExistingPowerToolsMarkup(WordprocessingDocument wDoc)
         {
-            wDoc.MainDocumentPart
-                .GetXDocument()
-                .Root
-                .Descendants()
-                .Where(d => d.Name == W.lastRenderedPageBreak ||
-                            d.Name == W.bookmarkStart ||
-                            d.Name == W.bookmarkEnd)
-                .Remove();
             wDoc.MainDocumentPart
                 .GetXDocument()
                 .Root
@@ -294,16 +299,6 @@ namespace OpenXmlPowerTools
                         }));
 
                     return clonedParaWithGroupedRuns;
-                }
-
-                if (element.Name == W.pPr)
-                {
-                    var cloned_pPr = new XElement(W.pPr,
-                        element.Attributes(),
-                        element.Elements()
-                            .Where(e => e.Name != W.sectPr)
-                            .Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
-                    return cloned_pPr;
                 }
 
                 if (element.Name == W.r)
@@ -757,9 +752,7 @@ namespace OpenXmlPowerTools
                         });
                         foreach (var anc in zippedAncestors)
                         {
-                            if (anc.AncestorBefore == null || anc.AncestorAfter == null)
-                                continue;
-                            if (anc.AncestorBefore.Attribute(PtOpenXml.Unid) == null ||
+                           if (anc.AncestorBefore.Attribute(PtOpenXml.Unid) == null ||
                                 anc.AncestorAfter.Attribute(PtOpenXml.Unid) == null)
                                 continue;
                             var beforeUnid = (string)anc.AncestorBefore.Attribute(PtOpenXml.Unid);
@@ -834,90 +827,6 @@ namespace OpenXmlPowerTools
                  return updatedWmlResult;
              }
         }
-
-#if false
-        // leaving this code here, bc will need variation on this code when counting revisions.
-        // not exactly, but close.  When counting revisions, need to coalesce adjacent revisions, with
-        // probably certain exceptions like boundaries of tables.
-
-        private static object CoalesceRunsInInsAndDel(XNode node)
-        {
-            XElement element = node as XElement;
-            if (element != null)
-            {
-                if (element.Elements().Any(c => c.Name == W.ins || c.Name == W.del))
-                {
-                    var groupedAdjacent = element
-                        .Elements()
-                        .GroupAdjacent(k =>
-                        {
-                            if (k.Name == W.ins || k.Name == W.del)
-                                return k.Name.LocalName;
-                            return "x";
-                        })
-                        .ToList();
-
-                    var childElements = groupedAdjacent
-                        .Select(g =>
-                        {
-                            if (g.Key == "x")
-                                return (object)g;
-                            // g.Key == "ins" || g.Key == "del"
-                            var insOrDelGrouped = g
-                                .GroupAdjacent(gc =>
-                                {
-                                    string key = "x";
-                                    if (gc.Elements().Count() == 1 && gc.Elements(W.r).Count() == 1)
-                                    {
-                                        var firstElementName = gc.Elements().First().Name;
-                                        key = firstElementName.LocalName + "|";
-                                        var rPr = gc.Elements().First().Element(W.rPr);
-                                        string rPrString = "";
-                                        if (rPr != null)
-                                            rPrString = rPr.ToString(SaveOptions.DisableFormatting);
-                                        key += rPrString;
-                                    }
-                                    return key;
-                                })
-                                .ToList();
-                            var newChildElements = insOrDelGrouped
-                                .Select(idg =>
-                                {
-                                    if (idg.Key == "x")
-                                        return (object)idg;
-                                    XElement newChildElement = null;
-                                    if (g.Key.StartsWith("ins"))
-                                        newChildElement = new XElement(W.ins,
-                                            g.First().Attributes());
-                                    else
-                                        newChildElement = new XElement(W.del,
-                                            g.First().Attributes());
-                                    var rPr = idg.Elements().Elements(W.rPr).FirstOrDefault();
-                                    var run = new XElement(W.r,
-                                        rPr,
-                                        g.Elements().Elements().Where(e => e.Name != W.rPr));
-                                    newChildElement.Add(run);
-                                    return newChildElement;
-                                })
-                                .ToList();
-                            return newChildElements;
-                        })
-                        .ToList();
-
-                    var newElement = new XElement(element.Name,
-                        new XAttribute(XNamespace.Xmlns + "w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"),
-                        element.Attributes(),
-                        childElements);
-                    return newElement;
-                }
-
-                return new XElement(element.Name,
-                    element.Attributes(),
-                    element.Nodes().Select(n => CoalesceRunsInInsAndDel(n)));
-            }
-            return node;
-        }
-#endif
 
         private static void MoveLastSectPrToChildOfBody(XDocument newXDoc)
         {
@@ -1267,7 +1176,6 @@ namespace OpenXmlPowerTools
                 foreach (var att in attributesToUpdate)
                 {
                     var rId = (string)att;
-
 
                     var relationshipForDeletedPart = partOfDeletedContent.GetRelationship(rId);
                     if (relationshipForDeletedPart == null)
@@ -2076,7 +1984,7 @@ namespace OpenXmlPowerTools
                 foreach (var item in groupingKey)
                 {
                     sb.Append(item.Key + Environment.NewLine);
-                    sb.Append("    " + item.ComparisonUnitAtomMember.ToString(0) + Environment.NewLine);
+                    sb.Append("    " + item.ComparisonUnitAtomMember.ToString(0) + Environment.NewLine);                                                                                                                                                                                                                    
                 }
                 var sbs = sb.ToString();
                 Console.WriteLine(sbs);
@@ -2100,7 +2008,7 @@ namespace OpenXmlPowerTools
                 Console.WriteLine(sbs);
             }
 
-            var withHierarchicalGroupingKey = groupedByWords
+             var withHierarchicalGroupingKey = groupedByWords
                 .Select(g =>
                     {
                         var hierarchicalGroupingArray = g
