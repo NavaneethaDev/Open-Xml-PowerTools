@@ -1,24 +1,13 @@
-﻿//#define SHORT_UNID
-#undef SHORT_UNID
+﻿/***************************************************************************
 
-// Test
-// - endNotes
-// - footNotes
-// - ptab is not adequately tested.
-
-// remove RemoveIrrelevantMarkup
-// can optimize Descendants
-
-/***************************************************************************
-
-Copyright (c) Microsoft Corporation 2016.
+Copyright (c) Eric White 2016.
 
 This code is licensed using the Microsoft Public License (Ms-PL).  The text of the license can be found here:
 
 http://www.microsoft.com/resources/sharedsource/licensingbasics/publiclicense.mspx
 
-Published at http://OpenXmlDeveloper.org
-Resource Center and Documentation: http://openxmldeveloper.org/wiki/w/wiki/powertools-for-open-xml.aspx
+Published at http://EricWhite.com
+Resource Center and Documentation: http://ericwhite.com/blog/blog/open-xml-powertools-developer-center/
 
 Developer: Eric White
 Blog: http://www.ericwhite.com
@@ -26,6 +15,9 @@ Twitter: @EricWhiteDev
 Email: eric@ericwhite.com
 
 ***************************************************************************/
+
+#define SHORT_UNID
+//#undef SHORT_UNID
 
 using System;
 using System.Collections.Generic;
@@ -56,7 +48,7 @@ namespace OpenXmlPowerTools
 
     public static class WmlComparer
     {
-        public static bool s_DumpLog = false;
+        public static bool s_False = false;
         public static bool s_True = true;
 
         public static WmlDocument Compare(WmlDocument source1, WmlDocument source2, WmlComparerSettings settings)
@@ -137,16 +129,15 @@ namespace OpenXmlPowerTools
                     TestForInvalidContent(wDoc);
                     RemoveExistingPowerToolsMarkup(wDoc);
 
-                    //AddSha1HashToBlockLevelContent(wDoc1);
                     var atomList = WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart).ToArray();
 
-                    if (s_DumpLog)
+                    if (s_False)
                     {
                         var sb = new StringBuilder();
                         foreach (var item in atomList)
                             sb.Append(item.ToString() + Environment.NewLine);
                         var sbs = sb.ToString();
-                        Console.WriteLine(sbs);
+                        TestUtil.NotePad(sbs);
                     }
 
                     var grouped = atomList
@@ -574,7 +565,7 @@ namespace OpenXmlPowerTools
         private static WmlDocument ApplyChanges(ComparisonUnit[] cu1, ComparisonUnit[] cu2, WmlDocument wmlResult,
             WmlComparerSettings settings)
         {
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb3 = new StringBuilder();
                 sb3.Append("ComparisonUnitList 1 =====" + Environment.NewLine + Environment.NewLine);
@@ -583,19 +574,18 @@ namespace OpenXmlPowerTools
                 sb3.Append("ComparisonUnitList 2 =====" + Environment.NewLine + Environment.NewLine);
                 sb3.Append(ComparisonUnit.ComparisonUnitListToString(cu2));
                 var sbs3 = sb3.ToString();
-                Console.WriteLine(sbs3);
+                TestUtil.NotePad(sbs3);
             }
 
             var correlatedSequence = Lcs(cu1, cu2, settings);
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var item in correlatedSequence)
                     sb.Append(item.ToString()).Append(Environment.NewLine);
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
-                //TestUtil.NotePad(sbs);
+                TestUtil.NotePad(sbs);
             }
 
             // for any deleted or inserted rows, we go into the w:trPr properties, and add the appropriate w:ins or w:del element, and therefore
@@ -700,14 +690,13 @@ namespace OpenXmlPowerTools
                 .SelectMany(m => m)
                 .ToList();
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var item in listOfComparisonUnitAtoms)
                     sb.Append(item.ToString()).Append(Environment.NewLine);
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
-                //TestUtil.NotePad(sbs);
+                TestUtil.NotePad(sbs);
             }
 
             // hack = set the guid ID of the table, row, or cell from the 'before' document to be equal to the 'after' document.
@@ -770,13 +759,13 @@ namespace OpenXmlPowerTools
                 }
             }
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var item in listOfComparisonUnitAtoms)
                     sb.Append(item.ToString()).Append(Environment.NewLine);
                 var sbs = sb.ToString();
-                // TestUtil.NotePad(sbs);
+                TestUtil.NotePad(sbs);
             }
 
             // and then finally can generate the document with revisions
@@ -852,14 +841,14 @@ namespace OpenXmlPowerTools
         {
             // fabricate new MainDocumentPart from correlatedSequence
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 //dump out content atoms
                 var sb = new StringBuilder();
                 foreach (var item in comparisonUnitAtomList)
                     sb.Append(item.ToString()).Append(Environment.NewLine);
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
+                TestUtil.NotePad(sbs);
             }
 
             s_MaxId = 0;
@@ -938,7 +927,7 @@ namespace OpenXmlPowerTools
                     return unid;
                 });
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var group in grouped)
@@ -1020,7 +1009,7 @@ namespace OpenXmlPowerTools
                             {
                                 pPr = new XElement(pPrComparisonUnitAtom.ContentElement); // clone so we can change it
                                 if (pPrComparisonUnitAtom.CorrelationStatus == CorrelationStatus.Deleted)
-                                    pPr.Elements(W.sectPr).Remove(); // for now, don't move sectPr from old document to new document.
+                                    pPr.Elements(W.sectPr).Remove(); // don't move sectPr from old document to new document.
                             }
                         }
                         if (pPrComparisonUnitAtom != null)
@@ -1150,11 +1139,6 @@ namespace OpenXmlPowerTools
                         return (object)ReconstructElement(part, g, ancestorBeingConstructed, null, null, level, settings);
 
                     throw new OpenXmlPowerToolsException("Internal error - unrecognized ancestor being constructed.");
-                    // previously, did the following, but should not be required.
-                    //var newElement = new XElement(ancestorBeingConstructed.Name,
-                    //    ancestorBeingConstructed.Attributes(),
-                    //    CoalesceRecurse(g, level + 1));
-                    //return newElement;
                 })
                 .ToList();
             return elementList;
@@ -1270,26 +1254,25 @@ namespace OpenXmlPowerTools
 
             while (true)
             {
-                if (s_DumpLog)
+                if (s_False)
                 {
                     var sb = new StringBuilder();
                     foreach (var item in csList)
                         sb.Append(item.ToString()).Append(Environment.NewLine);
                     var sbs = sb.ToString();
-                    //TestUtil.NotePad(sbs);
-                    Console.WriteLine(sbs);
+                    TestUtil.NotePad(sbs);
                 }
 
                 var unknown = csList
                     .FirstOrDefault(z => z.CorrelationStatus == CorrelationStatus.Unknown);
                 if (unknown != null)
                 {
-                    if (s_DumpLog)
+                    if (s_False)
                     {
                         var sb = new StringBuilder();
                         sb.Append(unknown.ToString());
                         var sbs = sb.ToString();
-                        Console.WriteLine(sbs);
+                        TestUtil.NotePad(sbs);
                     }
 
                     var newSequence = FindCommonAtBeginningAndEnd(unknown, settings);
@@ -1698,13 +1681,13 @@ namespace OpenXmlPowerTools
                             newListOfCorrelatedSequence.Add(unknownCorrelatedSequence2);
                         }
 
-                        if (s_DumpLog)
+                        if (s_False)
                         {
                             var sb = new StringBuilder();
                             foreach (var item in newListOfCorrelatedSequence)
                                 sb.Append(item.ToString()).Append(Environment.NewLine);
                             var sbs = sb.ToString();
-                            Console.WriteLine(sbs);
+                            TestUtil.NotePad(sbs);
                         }
 
                         return newListOfCorrelatedSequence;
@@ -1978,7 +1961,7 @@ namespace OpenXmlPowerTools
                     };
                 });
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var item in groupingKey)
@@ -1987,13 +1970,13 @@ namespace OpenXmlPowerTools
                     sb.Append("    " + item.ComparisonUnitAtomMember.ToString(0) + Environment.NewLine);                                                                                                                                                                                                                    
                 }
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
+                TestUtil.NotePad(sbs);
             }
 
             var groupedByWords = groupingKey
                 .GroupAdjacent(gc => gc.Key);
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var group in groupedByWords)
@@ -2005,7 +1988,7 @@ namespace OpenXmlPowerTools
                     }
                 }
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
+                TestUtil.NotePad(sbs);
             }
 
              var withHierarchicalGroupingKey = groupedByWords
@@ -2027,7 +2010,7 @@ namespace OpenXmlPowerTools
                 )
                 .ToArray();
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var group in withHierarchicalGroupingKey)
@@ -2039,15 +2022,15 @@ namespace OpenXmlPowerTools
                     }
                 }
                 var sbs = sb.ToString();
-                Console.WriteLine(sbs);
+                TestUtil.NotePad(sbs);
             }
 
             var cul = GetHierarchicalComparisonUnits(withHierarchicalGroupingKey, 0).ToArray();
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var str = ComparisonUnit.ComparisonUnitListToString(cul);
-                Console.WriteLine(str);
+                TestUtil.NotePad(str);
             }
 
             return cul;
@@ -2283,7 +2266,7 @@ namespace OpenXmlPowerTools
                     return unid;
                 });
 
-            if (s_DumpLog)
+            if (s_False)
             {
                 var sb = new StringBuilder();
                 foreach (var group in grouped)
@@ -2491,7 +2474,6 @@ namespace OpenXmlPowerTools
                 return;
             }
 
-            // todo use recursioninfo array here
             var re = RecursionElements.FirstOrDefault(z => z.ElementName == element.Name);
             if (re != null)
             {
@@ -2593,7 +2575,7 @@ namespace OpenXmlPowerTools
 
         public abstract string ToString(int indent);
 
-        internal static object ComparisonUnitListToString(ComparisonUnit[] cul)
+        internal static string ComparisonUnitListToString(ComparisonUnit[] cul)
         {
             var sb = new StringBuilder();
             sb.Append("Dump Comparision Unit List To String" + Environment.NewLine);
@@ -2947,3 +2929,11 @@ namespace OpenXmlPowerTools
         }
     }
 }
+
+// Test
+// - endNotes
+// - footNotes
+// - ptab is not adequately tested.
+
+// can optimize Descendants
+
