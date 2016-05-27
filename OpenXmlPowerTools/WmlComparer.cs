@@ -1465,7 +1465,6 @@ namespace OpenXmlPowerTools
                     (leftRows > 0 || rightRows > 0) &&
                     (leftOnlyWordsAndRows && rightOnlyWordsAndRows))
                 {
-
                     var leftGrouped = unknown
                         .ComparisonUnitArray1
                         .GroupAdjacent(cu =>
@@ -1557,6 +1556,155 @@ namespace OpenXmlPowerTools
                             return newListOfCorrelatedSequence;
                         }
                         // else continue on next round.
+                    }
+                }
+
+                // if both sides contain tables and paragraphs, then split into multiple unknown corr sequ
+                if (leftTables > 0 && rightTables > 0 &&
+                    leftParagraphs > 0 && rightParagraphs > 0 &&
+                    (leftLength > 1 || rightLength > 1))
+                {
+                    var leftGrouped = unknown
+                        .ComparisonUnitArray1
+                        .GroupAdjacent(cu =>
+                        {
+                            var cug = cu as ComparisonUnitGroup;
+                            if (cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Table)
+                                return "Table";
+                            else
+                                return "Para";
+                        })
+                        .ToArray();
+                    var rightGrouped = unknown
+                        .ComparisonUnitArray2
+                        .GroupAdjacent(cu =>
+                        {
+                            var cug = cu as ComparisonUnitGroup;
+                            if (cug.ComparisonUnitGroupType == ComparisonUnitGroupType.Table)
+                                return "Table";
+                            else
+                                return "Para";
+                        })
+                        .ToArray();
+                    int iLeft = 0;
+                    int iRight = 0;
+
+                    // create an unknown corr sequ for it.
+                    // increment both counters
+                    // if one is at end but the other is not, then tag the remaining content as inserted or deleted, and done.
+                    // if both are at the end, then done
+                    // return the new list of corr sequ
+
+                    while (true)
+                    {
+                        if ((leftGrouped[iLeft].Key == "Table" && rightGrouped[iRight].Key == "Table") ||
+                            (leftGrouped[iLeft].Key == "Para" && rightGrouped[iRight].Key == "Para"))
+                        {
+                            var unknownCorrelatedSequence = new CorrelatedSequence();
+                            unknownCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[iLeft].ToArray();
+                            unknownCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[iRight].ToArray();
+                            unknownCorrelatedSequence.CorrelationStatus = CorrelationStatus.Unknown;
+                            newListOfCorrelatedSequence.Add(unknownCorrelatedSequence);
+                            ++iLeft;
+                            ++iRight;
+                        }
+                        else if (leftGrouped[iLeft].Key == "Para" && rightGrouped[iRight].Key == "Table")
+                        {
+                            var deletedCorrelatedSequence = new CorrelatedSequence();
+                            deletedCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[iLeft].ToArray();
+                            deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                            deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                            newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                            ++iLeft;
+                        }
+                        else if (leftGrouped[iLeft].Key == "Table" && rightGrouped[iRight].Key == "Para")
+                        {
+                            var insertedCorrelatedSequence = new CorrelatedSequence();
+                            insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                            insertedCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[iRight].ToArray();
+                            insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                            newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+                            ++iRight;
+                        }
+
+                        if (iLeft == leftGrouped.Length && iRight == rightGrouped.Length)
+                            return newListOfCorrelatedSequence;
+
+                        // if there is content on the left, but not content on the right
+                        if (iRight == rightGrouped.Length)
+                        {
+                            for (int j = iLeft; j < leftGrouped.Length; j++)
+                            {
+                                var deletedCorrelatedSequence = new CorrelatedSequence();
+                                deletedCorrelatedSequence.ComparisonUnitArray1 = leftGrouped[j].ToArray();
+                                deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                                deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                                newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+                            }
+                            return newListOfCorrelatedSequence;
+                        }
+                        // there is content on the right but not on the left
+                        else if (iLeft == leftGrouped.Length)
+                        {
+                            for (int j = iRight; j < rightGrouped.Length; j++)
+                            {
+                                var insertedCorrelatedSequence = new CorrelatedSequence();
+                                insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                                insertedCorrelatedSequence.ComparisonUnitArray2 = rightGrouped[j].ToArray();
+                                insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                                newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+                            }
+                            return newListOfCorrelatedSequence;
+                        }
+                        // else continue on next round.
+                    }
+                }
+
+                // If both sides consists of a single table, and if the table contains merged cells, then mark as deleted/inserted
+                if (leftTables == 1 && leftLength == 1 &&
+                    rightTables == 1 && rightLength == 1)
+                {
+                    var cug1 = unknown.ComparisonUnitArray1.First() as ComparisonUnitGroup;
+                    var firstContentAtom1 = cug1.DescendantContentAtoms().FirstOrDefault();
+                    if (firstContentAtom1 == null)
+                        throw new OpenXmlPowerToolsException("Internal error");
+                    var tbl1 = firstContentAtom1
+                        .AncestorElements
+                        .Reverse()
+                        .FirstOrDefault(a => a.Name == W.tbl);
+
+                    var cug2 = unknown.ComparisonUnitArray1.First() as ComparisonUnitGroup;
+                    var firstContentAtom2 = cug2.DescendantContentAtoms().FirstOrDefault();
+                    if (firstContentAtom2 == null)
+                        throw new OpenXmlPowerToolsException("Internal error");
+                    var tbl2 = firstContentAtom2
+                        .AncestorElements
+                        .Reverse()
+                        .FirstOrDefault(a => a.Name == W.tbl);
+
+                    var leftContainsMerged = tbl1
+                        .Descendants()
+                        .Any(d => d.Name == W.vMerge || d.Name == W.gridSpan);
+
+                    var rightContainsMerged = tbl2
+                        .Descendants()
+                        .Any(d => d.Name == W.vMerge || d.Name == W.gridSpan);
+
+                    if (leftContainsMerged || rightContainsMerged)
+                    {
+                        var deletedCorrelatedSequence = new CorrelatedSequence();
+                        deletedCorrelatedSequence.ComparisonUnitArray1 = unknown.ComparisonUnitArray1;
+                        deletedCorrelatedSequence.ComparisonUnitArray2 = null;
+                        deletedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Deleted;
+                        newListOfCorrelatedSequence.Add(deletedCorrelatedSequence);
+
+                        var insertedCorrelatedSequence = new CorrelatedSequence();
+                        insertedCorrelatedSequence.ComparisonUnitArray1 = null;
+                        insertedCorrelatedSequence.ComparisonUnitArray2 = unknown.ComparisonUnitArray2;
+                        insertedCorrelatedSequence.CorrelationStatus = CorrelationStatus.Inserted;
+                        newListOfCorrelatedSequence.Add(insertedCorrelatedSequence);
+
+                        return newListOfCorrelatedSequence;
                     }
                 }
 
