@@ -929,6 +929,14 @@ namespace OpenXmlPowerTools
                         return newDel;
                     }
                 }));
+            foreach (var txbx in paragraphWithConsolidatedRuns.Descendants(W.txbxContent))
+            {
+                foreach (var txbxPara in txbx.DescendantsTrimmed(W.txbxContent))
+                {
+                    var newPara = CoalesceAdjacentRunsWithIdenticalFormatting(txbxPara);
+                    txbxPara.ReplaceWith(newPara);
+                }
+            }
             return paragraphWithConsolidatedRuns;
         }
 

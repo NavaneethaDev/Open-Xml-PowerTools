@@ -71,7 +71,8 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(coalescedDocx.FullName, true))
             {
-                List<ComparisonUnitAtom> contentAtomList = WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart);
+                var contentParent = wDoc.MainDocumentPart.GetXDocument().Root.Element(W.body);
+                ComparisonUnitAtom[] contentAtomList = WmlComparer.CreateComparisonUnitAtomList(wDoc.MainDocumentPart, contentParent);
                 StringBuilder sb = new StringBuilder();
                 var part = wDoc.MainDocumentPart;
 
@@ -106,7 +107,8 @@ namespace OxPt
 
             using (WordprocessingDocument wDoc = WordprocessingDocument.Open(annotatedDocx.FullName, true))
             {
-                WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart);
+                var contentParent = wDoc.MainDocumentPart.GetXDocument().Root.Element(W.body);
+                WmlComparer.CreateComparisonUnitAtomList(wDoc.MainDocumentPart, contentParent);
             }
             //var assembledFormattingDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, sourceDocx.Name.Replace(".docx", "-2-FormattingAssembled.docx")));
             //CopyFormattingAssembledDocx(sourceDocx, assembledFormattingDestDocx);
@@ -138,7 +140,8 @@ namespace OxPt
             {
                 Assert.Throws<NotSupportedException>(() =>
                 {
-                    WmlComparer.CreateComparisonUnitAtomList(wDoc, wDoc.MainDocumentPart);
+                    var contentParent = wDoc.MainDocumentPart.GetXDocument().Root.Element(W.body);
+                    WmlComparer.CreateComparisonUnitAtomList(wDoc.MainDocumentPart, contentParent);
                 });
             }
         }
