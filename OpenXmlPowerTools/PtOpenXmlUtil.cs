@@ -884,6 +884,7 @@ namespace OpenXmlPowerTools
 
                 });
             XElement paragraphWithConsolidatedRuns = new XElement(W.p,
+                paragraphWithReplacedRuns.Attributes(),
                 groupedAdjacentRunsWithIdenticalFormatting.Select(g =>
                 {
                     if (g.Key == "DontConsolidate")
@@ -894,9 +895,10 @@ namespace OpenXmlPowerTools
                         xs = new XAttribute(XNamespace.Xml + "space", "preserve");
                     if (g.First().Name == W.r)
                     {
+                        var statusAtt = g.Select(r => r.Descendants(W.t).Take(1).Attributes(PtOpenXml.Status));
                         var newRun = new XElement(W.r,
                             g.First().Elements(W.rPr),
-                            new XElement(W.t, xs, textValue));
+                            new XElement(W.t, statusAtt, xs, textValue));
                         return newRun;
                     }
                     else if (g.First().Name == W.ins)
@@ -931,7 +933,7 @@ namespace OpenXmlPowerTools
                 }));
             foreach (var txbx in paragraphWithConsolidatedRuns.Descendants(W.txbxContent))
             {
-                foreach (var txbxPara in txbx.DescendantsTrimmed(W.txbxContent))
+                foreach (var txbxPara in txbx.DescendantsTrimmed(W.txbxContent).Where(d => d.Name == W.p))
                 {
                     var newPara = CoalesceAdjacentRunsWithIdenticalFormatting(txbxPara);
                     txbxPara.ReplaceWith(newPara);
@@ -1181,10 +1183,13 @@ namespace OpenXmlPowerTools
                         }));
 
                 if (element.Name == W.p)
-                    return new XElement(element.Name,
+                {
+                    var newP = new XElement(element.Name,
                         element.Attributes(),
                         element.Elements(W.pPr).Select(e => (XElement)WmlOrderElementsPerStandard(e)),
                         element.Elements().Where(e => e.Name != W.pPr).Select(e => (XElement)WmlOrderElementsPerStandard(e)));
+                    return newP;
+                }
 
                 if (element.Name == W.r)
                     return new XElement(element.Name,
@@ -5530,6 +5535,7 @@ namespace OpenXmlPowerTools
         public static XName Uri = pt + "Uri";
         public static XName Unid = pt + "Unid";
         public static XName SHA1Hash = pt + "SHA1Hash";
+        public static XName Status = pt + "Status";
 
         public static XName trPr = pt + "trPr";
         public static XName tcPr = pt + "tcPr";
