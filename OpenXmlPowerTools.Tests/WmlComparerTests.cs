@@ -37,32 +37,97 @@ namespace OxPt
     {
         public static bool s_OpenWord = false;
 
-        public static string[] ExpectedErrors = new string[] {
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstRow' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:lastRow' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstColumn' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:lastColumn' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:noHBand' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:noVBand' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:allStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:customStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:latentStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:stylesInUse' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:headingStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:numberingStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:tableStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnRuns' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnParagraphs' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnNumbering' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnTables' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:clearFormatting' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:top3HeadingStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:visibleStyles' attribute is not declared.",
-            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:alternateStyleNames' attribute is not declared.",
-            "The attribute 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:val' has invalid value '0'. The MinInclusive constraint failed. The value must be greater than or equal to 1.",
-            "The attribute 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:val' has invalid value '0'. The MinInclusive constraint failed. The value must be greater than or equal to 2.",
-        };
+        [Theory]
+        [InlineData("RC001-Before.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>RC001-After1.docx</DocName>
+                <Color>LightYellow</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+              <RcInfo>
+                <DocName>RC001-After2.docx</DocName>
+                <Color>LightPink</Color>
+                <Revisor>From Fred</Revisor>
+              </RcInfo>
+            </Root>")]
+        public void WC000_Consolidate(string originalName, string revisedDocumentsXml)
+        {
+            FileInfo originalDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, originalName));
 
+            var originalCopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, originalDocx.Name));
+            if (!originalCopiedToDestDocx.Exists)
+                File.Copy(originalDocx.FullName, originalCopiedToDestDocx.FullName);
+
+            var revisedDocumentsXElement = XElement.Parse(revisedDocumentsXml);
+            var revisedDocumentsArray = revisedDocumentsXElement
+                .Elements()
+                .Select(z =>
+                {
+                    FileInfo revisedDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, z.Element("DocName").Value));
+                    var revisedCopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, revisedDocx.Name));
+                    if (!revisedCopiedToDestDocx.Exists)
+                        File.Copy(revisedDocx.FullName, revisedCopiedToDestDocx.FullName);
+                    return new WmlRevisedDocumentInfo()
+                    {
+                        RevisedDocument = new WmlDocument(revisedCopiedToDestDocx.FullName),
+                        Color = Color.FromName(z.Element("Color").Value),
+                        RevisorHeading = z.Element("Revisor").Value,
+                    };
+                })
+                .ToList();
+
+            var consolidatedDocxName = originalCopiedToDestDocx.Name.Replace(".docx", "-Consolidated.docx");
+            var consolidatedDocumentFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, consolidatedDocxName));
+
+            WmlDocument source1Wml = new WmlDocument(originalCopiedToDestDocx.FullName);
+            WmlComparerSettings settings = new WmlComparerSettings();
+            WmlDocument consolidatedWml = WmlComparer.Consolidate(
+                source1Wml,
+                revisedDocumentsArray,
+                settings);
+            consolidatedWml.SaveAs(consolidatedDocumentFi.FullName);
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(consolidatedWml.DocumentByteArray, 0, consolidatedWml.DocumentByteArray.Length);
+                using (WordprocessingDocument wDoc = WordprocessingDocument.Open(ms, true))
+                {
+                    OpenXmlValidator validator = new OpenXmlValidator();
+                    var errors = validator.Validate(wDoc).Where(e => !ExpectedErrors.Contains(e.Description));
+                    if (errors.Count() > 0)
+                    {
+
+                        var ind = "  ";
+                        var sb = new StringBuilder();
+                        foreach (var err in errors)
+                        {
+#if true
+                            sb.Append("Error" + Environment.NewLine);
+                            sb.Append(ind + "ErrorType: " + err.ErrorType.ToString() + Environment.NewLine);
+                            sb.Append(ind + "Description: " + err.Description + Environment.NewLine);
+                            sb.Append(ind + "Part: " + err.Part.Uri.ToString() + Environment.NewLine);
+                            sb.Append(ind + "XPath: " + err.Path.XPath + Environment.NewLine);
+#else
+                        sb.Append("            \"" + err.Description + "\"," + Environment.NewLine);
+#endif
+                        }
+                        var sbs = sb.ToString();
+                        Assert.Equal("", sbs);
+                    }
+                }
+            }
+
+            /************************************************************************************************************************/
+
+            if (s_OpenWord)
+            {
+                FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
+                WordRunner.RunWord(wordExe, consolidatedDocumentFi);
+            }
+
+            /************************************************************************************************************************/
+        }
 
         [Theory]
         [InlineData("CA001-Plain.docx", "CA001-Plain-Mod.docx", 1)]
@@ -114,6 +179,7 @@ namespace OxPt
         [InlineData("WC025-Simple-Table-Before.docx", "WC025-Simple-Table-After.docx", 4)]
         [InlineData("WC026-Long-Table-Before.docx", "WC026-Long-Table-After-1.docx", 2)]
         [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-1.docx", 2)]
+        [InlineData("WC027-Twenty-Paras-After-1.docx", "WC027-Twenty-Paras-Before.docx", 2)]
         [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-2.docx", 4)]
         [InlineData("WC030-Image-Math-Before.docx", "WC030-Image-Math-After.docx", 2)]
         [InlineData("WC031-Two-Maths-Before.docx", "WC031-Two-Maths-After.docx", 4)]
@@ -138,7 +204,7 @@ namespace OxPt
         [InlineData("WC036-Endnote-With-Table-After.docx", "WC036-Endnote-With-Table-Before.docx", 6)]
         [InlineData("WC037-Textbox-Before.docx", "WC037-Textbox-After1.docx", 2)]
         [InlineData("WC038-Document-With-BR-Before.docx", "WC038-Document-With-BR-After.docx", 2)]
-        //[InlineData("", "", 0)]
+        [InlineData("RC001-Before.docx", "RC001-After1.docx", 2)]
         //[InlineData("", "", 0)]
         //[InlineData("", "", 0)]
         //[InlineData("", "", 0)]
@@ -360,6 +426,33 @@ namespace OxPt
                 }
             }
         }
+
+        public static string[] ExpectedErrors = new string[] {
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstRow' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:lastRow' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:firstColumn' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:lastColumn' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:noHBand' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:noVBand' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:allStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:customStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:latentStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:stylesInUse' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:headingStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:numberingStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:tableStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnRuns' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnParagraphs' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnNumbering' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:directFormattingOnTables' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:clearFormatting' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:top3HeadingStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:visibleStyles' attribute is not declared.",
+            "The 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:alternateStyleNames' attribute is not declared.",
+            "The attribute 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:val' has invalid value '0'. The MinInclusive constraint failed. The value must be greater than or equal to 1.",
+            "The attribute 'http://schemas.openxmlformats.org/wordprocessingml/2006/main:val' has invalid value '0'. The MinInclusive constraint failed. The value must be greater than or equal to 2.",
+        };
+
     }
 
     public class WordRunner
