@@ -51,7 +51,48 @@ namespace OxPt
                 <Revisor>From Fred</Revisor>
               </RcInfo>
             </Root>")]
-        public void WC000_Consolidate(string originalName, string revisedDocumentsXml)
+        [InlineData("RC002-Image.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>RC002-Image-After1.docx</DocName>
+                <Color>LightBlue</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+            </Root>")]
+        [InlineData("RC002-Image-After1.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>RC002-Image.docx</DocName>
+                <Color>LightBlue</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+            </Root>")]
+        [InlineData("WC027-Twenty-Paras-Before.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>WC027-Twenty-Paras-After-1.docx</DocName>
+                <Color>LightBlue</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+            </Root>")]
+        [InlineData("WC027-Twenty-Paras-Before.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>WC027-Twenty-Paras-After-3.docx</DocName>
+                <Color>LightBlue</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+            </Root>")]
+        [InlineData("RC003-Multi-Paras.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>RC003-Multi-Paras-After.docx</DocName>
+                <Color>LightBlue</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+            </Root>")]
+
+        public void WC001_Consolidate(string originalName, string revisedDocumentsXml)
         {
             FileInfo originalDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, originalName));
 
@@ -72,7 +113,7 @@ namespace OxPt
                     {
                         RevisedDocument = new WmlDocument(revisedCopiedToDestDocx.FullName),
                         Color = Color.FromName(z.Element("Color").Value),
-                        RevisorHeading = z.Element("Revisor").Value,
+                        Revisor = z.Element("Revisor").Value,
                     };
                 })
                 .ToList();
@@ -124,6 +165,195 @@ namespace OxPt
             {
                 FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
                 WordRunner.RunWord(wordExe, consolidatedDocumentFi);
+            }
+
+            /************************************************************************************************************************/
+        }
+
+        [Theory]
+        [InlineData("CA001-Plain.docx", "CA001-Plain-Mod.docx")]
+        [InlineData("WC001-Digits.docx", "WC001-Digits-Mod.docx")]
+        [InlineData("WC001-Digits.docx", "WC001-Digits-Deleted-Paragraph.docx")]
+        [InlineData("WC001-Digits-Deleted-Paragraph.docx", "WC001-Digits.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DiffInMiddle.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DiffAtBeginning.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DeleteAtBeginning.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-InsertAtBeginning.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-InsertAtEnd.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DeleteAtEnd.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-DeleteInMiddle.docx")]
+        [InlineData("WC002-Unmodified.docx", "WC002-InsertInMiddle.docx")]
+        [InlineData("WC002-DeleteInMiddle.docx", "WC002-Unmodified.docx")]
+        [InlineData("WC004-Large.docx", "WC004-Large-Mod.docx")]
+        [InlineData("WC006-Table.docx", "WC006-Table-Delete-Row.docx")]
+        [InlineData("WC006-Table-Delete-Row.docx", "WC006-Table.docx")]
+        [InlineData("WC006-Table.docx", "WC006-Table-Delete-Contests-of-Row.docx")]
+        [InlineData("WC007-Unmodified.docx", "WC007-Longest-At-End.docx")]
+        [InlineData("WC007-Unmodified.docx", "WC007-Deleted-at-Beginning-of-Para.docx")]
+        [InlineData("WC007-Unmodified.docx", "WC007-Moved-into-Table.docx")]
+        [InlineData("WC009-Table-Unmodified.docx", "WC009-Table-Cell-1-1-Mod.docx")]
+        [InlineData("WC010-Para-Before-Table-Unmodified.docx", "WC010-Para-Before-Table-Mod.docx")]
+        [InlineData("WC011-Before.docx", "WC011-After.docx")]
+        [InlineData("WC012-Math-Before.docx", "WC012-Math-After.docx")]
+        [InlineData("WC013-Image-Before.docx", "WC013-Image-After.docx")]
+        [InlineData("WC013-Image-Before.docx", "WC013-Image-After2.docx")]
+        [InlineData("WC013-Image-Before2.docx", "WC013-Image-After2.docx")]
+        [InlineData("WC014-SmartArt-Before.docx", "WC014-SmartArt-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx", "WC014-SmartArt-With-Image-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx", "WC014-SmartArt-With-Image-Deleted-After.docx")]
+        [InlineData("WC014-SmartArt-With-Image-Before.docx", "WC014-SmartArt-With-Image-Deleted-After2.docx")]
+        [InlineData("WC015-Three-Paragraphs.docx", "WC015-Three-Paragraphs-After.docx")]
+        [InlineData("WC016-Para-Image-Para.docx", "WC016-Para-Image-Para-w-Deleted-Image.docx")]
+        [InlineData("WC017-Image.docx", "WC017-Image-After.docx")]
+        [InlineData("WC018-Field-Simple-Before.docx", "WC018-Field-Simple-After-1.docx")]
+        [InlineData("WC018-Field-Simple-Before.docx", "WC018-Field-Simple-After-2.docx")]
+        [InlineData("WC019-Hyperlink-Before.docx", "WC019-Hyperlink-After-1.docx")]
+        [InlineData("WC019-Hyperlink-Before.docx", "WC019-Hyperlink-After-2.docx")]
+        [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-1.docx")]
+        [InlineData("WC020-FootNote-Before.docx", "WC020-FootNote-After-2.docx")]
+        [InlineData("WC021-Math-Before-1.docx", "WC021-Math-After-1.docx")]
+        [InlineData("WC021-Math-Before-2.docx", "WC021-Math-After-2.docx")]
+        [InlineData("WC022-Image-Math-Para-Before.docx", "WC022-Image-Math-Para-After.docx")]
+        [InlineData("WC023-Table-4-Row-Image-Before.docx", "WC023-Table-4-Row-Image-After-Delete-1-Row.docx")]
+        [InlineData("WC024-Table-Before.docx", "WC024-Table-After.docx")]
+        [InlineData("WC024-Table-Before.docx", "WC024-Table-After2.docx")]
+        [InlineData("WC025-Simple-Table-Before.docx", "WC025-Simple-Table-After.docx")]
+        [InlineData("WC026-Long-Table-Before.docx", "WC026-Long-Table-After-1.docx")]
+        [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-1.docx")]
+        [InlineData("WC027-Twenty-Paras-After-1.docx", "WC027-Twenty-Paras-Before.docx")]
+        [InlineData("WC027-Twenty-Paras-Before.docx", "WC027-Twenty-Paras-After-2.docx")]
+        [InlineData("WC030-Image-Math-Before.docx", "WC030-Image-Math-After.docx")]
+        [InlineData("WC031-Two-Maths-Before.docx", "WC031-Two-Maths-After.docx")]
+        [InlineData("WC032-Para-with-Para-Props.docx", "WC032-Para-with-Para-Props-After.docx")]
+        [InlineData("WC033-Merged-Cells-Before.docx", "WC033-Merged-Cells-After1.docx")]
+        [InlineData("WC033-Merged-Cells-Before.docx", "WC033-Merged-Cells-After2.docx")]
+        [InlineData("WC034-Footnotes-Before.docx", "WC034-Footnotes-After1.docx")]
+        [InlineData("WC034-Footnotes-Before.docx", "WC034-Footnotes-After2.docx")]
+        [InlineData("WC034-Footnotes-Before.docx", "WC034-Footnotes-After3.docx")]
+        [InlineData("WC034-Footnotes-After3.docx", "WC034-Footnotes-Before.docx")]
+        [InlineData("WC035-Footnote-Before.docx", "WC035-Footnote-After.docx")]
+        [InlineData("WC035-Footnote-After.docx", "WC035-Footnote-Before.docx")]
+        [InlineData("WC036-Footnote-With-Table-Before.docx", "WC036-Footnote-With-Table-After.docx")]
+        [InlineData("WC036-Footnote-With-Table-After.docx", "WC036-Footnote-With-Table-Before.docx")]
+        [InlineData("WC034-Endnotes-Before.docx", "WC034-Endnotes-After1.docx")]
+        [InlineData("WC034-Endnotes-Before.docx", "WC034-Endnotes-After2.docx")]
+        [InlineData("WC034-Endnotes-Before.docx", "WC034-Endnotes-After3.docx")]
+        [InlineData("WC034-Endnotes-After3.docx", "WC034-Endnotes-Before.docx")]
+        [InlineData("WC035-Endnote-Before.docx", "WC035-Endnote-After.docx")]
+        [InlineData("WC035-Endnote-After.docx", "WC035-Endnote-Before.docx")]
+        [InlineData("WC036-Endnote-With-Table-Before.docx", "WC036-Endnote-With-Table-After.docx")]
+        [InlineData("WC036-Endnote-With-Table-After.docx", "WC036-Endnote-With-Table-Before.docx")]
+        [InlineData("WC037-Textbox-Before.docx", "WC037-Textbox-After1.docx")]
+        [InlineData("WC038-Document-With-BR-Before.docx", "WC038-Document-With-BR-After.docx")]
+        [InlineData("RC001-Before.docx", "RC001-After1.docx")]
+        [InlineData("RC002-Image.docx", "RC002-Image-After1.docx")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+        //[InlineData("", "")]
+
+
+        public void WC002_Consolidate_Bulk_Test(string name1, string name2)
+        {
+            FileInfo source1Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name1));
+            FileInfo source2Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name2));
+
+            var source1CopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, source1Docx.Name));
+            var source2CopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, source2Docx.Name));
+            if (!source1CopiedToDestDocx.Exists)
+                File.Copy(source1Docx.FullName, source1CopiedToDestDocx.FullName);
+            if (!source2CopiedToDestDocx.Exists)
+                File.Copy(source2Docx.FullName, source2CopiedToDestDocx.FullName);
+
+            /************************************************************************************************************************/
+
+            if (s_OpenWord)
+            {
+                FileInfo source1DocxForWord = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name1));
+                FileInfo source2DocxForWord = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name2));
+
+                var source1CopiedToDestDocxForWord = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, source1Docx.Name.Replace(".docx", "-For-Word.docx")));
+                var source2CopiedToDestDocxForWord = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, source2Docx.Name.Replace(".docx", "-For-Word.docx")));
+                if (!source1CopiedToDestDocxForWord.Exists)
+                    File.Copy(source1Docx.FullName, source1CopiedToDestDocxForWord.FullName);
+                if (!source2CopiedToDestDocxForWord.Exists)
+                    File.Copy(source2Docx.FullName, source2CopiedToDestDocxForWord.FullName);
+
+                FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
+                var path = new DirectoryInfo(@"C:\Users\Eric\Documents\WindowsPowerShellModules\Open-Xml-PowerTools\TestFiles");
+                WordRunner.RunWord(wordExe, source2CopiedToDestDocxForWord);
+                WordRunner.RunWord(wordExe, source1CopiedToDestDocxForWord);
+            }
+
+            /************************************************************************************************************************/
+
+            var before = source1CopiedToDestDocx.Name.Replace(".docx", "");
+            var after = source2CopiedToDestDocx.Name.Replace(".docx", "");
+            var docxWithRevisionsFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, before + "-COMPARE-" + after + ".docx"));
+            var docxConsolidatedFi = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, before + "-CONSOLIDATED-" + after + ".docx"));
+
+            WmlDocument source1Wml = new WmlDocument(source1CopiedToDestDocx.FullName);
+            WmlDocument source2Wml = new WmlDocument(source2CopiedToDestDocx.FullName);
+            WmlComparerSettings settings = new WmlComparerSettings();
+            //WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
+            //comparedWml.SaveAs(docxWithRevisionsFi.FullName);
+
+            List<WmlRevisedDocumentInfo> revisedDocInfo = new List<WmlRevisedDocumentInfo>()
+            {
+                new WmlRevisedDocumentInfo()
+                {
+                    RevisedDocument = source2Wml,
+                    Color = Color.LightBlue,
+                    Revisor = "Revised by Eric White",
+                }
+            };
+            WmlDocument consolidatedWml = WmlComparer.Consolidate(
+                source1Wml,
+                revisedDocInfo,
+                settings);
+            consolidatedWml.SaveAs(docxConsolidatedFi.FullName);
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(consolidatedWml.DocumentByteArray, 0, consolidatedWml.DocumentByteArray.Length);
+                using (WordprocessingDocument wDoc = WordprocessingDocument.Open(ms, true))
+                {
+                    OpenXmlValidator validator = new OpenXmlValidator();
+                    var errors = validator.Validate(wDoc).Where(e => !ExpectedErrors.Contains(e.Description));
+                    if (errors.Count() > 0)
+                    {
+
+                        var ind = "  ";
+                        var sb = new StringBuilder();
+                        foreach (var err in errors)
+                        {
+#if true
+                            sb.Append("Error" + Environment.NewLine);
+                            sb.Append(ind + "ErrorType: " + err.ErrorType.ToString() + Environment.NewLine);
+                            sb.Append(ind + "Description: " + err.Description + Environment.NewLine);
+                            sb.Append(ind + "Part: " + err.Part.Uri.ToString() + Environment.NewLine);
+                            sb.Append(ind + "XPath: " + err.Path.XPath + Environment.NewLine);
+#else
+                        sb.Append("            \"" + err.Description + "\"," + Environment.NewLine);
+#endif
+                        }
+                        var sbs = sb.ToString();
+                        Assert.Equal("", sbs);
+                    }
+                }
+            }
+
+            /************************************************************************************************************************/
+
+            if (s_OpenWord)
+            {
+                FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
+                WordRunner.RunWord(wordExe, docxWithRevisionsFi);
             }
 
             /************************************************************************************************************************/
@@ -205,8 +435,8 @@ namespace OxPt
         [InlineData("WC037-Textbox-Before.docx", "WC037-Textbox-After1.docx", 2)]
         [InlineData("WC038-Document-With-BR-Before.docx", "WC038-Document-With-BR-After.docx", 2)]
         [InlineData("RC001-Before.docx", "RC001-After1.docx", 2)]
-        //[InlineData("", "", 0)]
-        //[InlineData("", "", 0)]
+        [InlineData("RC002-Image.docx", "RC002-Image-After1.docx", 1)]
+        [InlineData("WC039-Break-In-Row.docx", "WC039-Break-In-Row-After1.docx", 1)]
         //[InlineData("", "", 0)]
         //[InlineData("", "", 0)]
         //[InlineData("", "", 0)]
@@ -216,7 +446,7 @@ namespace OxPt
         //[InlineData("", "", 0)]
         //[InlineData("", "", 0)]
 
-        public void WC001_Compare(string name1, string name2, int revisionCount)
+        public void WC003_Compare(string name1, string name2, int revisionCount)
         {
             FileInfo source1Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name1));
             FileInfo source2Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name2));
@@ -369,7 +599,7 @@ namespace OxPt
         //[InlineData("", "")]
         //[InlineData("", "")]
 
-        public void WC002_Compare_To_Self(string name)
+        public void WC004_Compare_To_Self(string name)
         {
             FileInfo sourceDocx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name));
 
