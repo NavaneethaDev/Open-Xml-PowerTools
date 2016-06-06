@@ -300,8 +300,8 @@ namespace OxPt
             WmlDocument source1Wml = new WmlDocument(source1CopiedToDestDocx.FullName);
             WmlDocument source2Wml = new WmlDocument(source2CopiedToDestDocx.FullName);
             WmlComparerSettings settings = new WmlComparerSettings();
-            //WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
-            //comparedWml.SaveAs(docxWithRevisionsFi.FullName);
+            WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
+            comparedWml.SaveAs(docxWithRevisionsFi.FullName);
 
             List<WmlRevisedDocumentInfo> revisedDocInfo = new List<WmlRevisedDocumentInfo>()
             {
@@ -353,7 +353,7 @@ namespace OxPt
             if (s_OpenWord)
             {
                 FileInfo wordExe = new FileInfo(@"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE");
-                WordRunner.RunWord(wordExe, docxWithRevisionsFi);
+                WordRunner.RunWord(wordExe, docxConsolidatedFi);
             }
 
             /************************************************************************************************************************/
