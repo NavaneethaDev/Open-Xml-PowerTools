@@ -226,6 +226,11 @@ namespace OpenXmlPowerTools
                         .Elements(W.sectPr)
                         .Remove();
 
+                    var consolidatedByPrevUnid = consolidatedMainDocPartXDoc
+                        .Descendants()
+                        .Where(d => (d.Name == W.p || d.Name == W.tbl) && d.Attribute(PtOpenXml.PrevUnid) != null)
+                        .ToDictionary(d => (string)d.Attribute(PtOpenXml.PrevUnid));
+
                     foreach (var revisedDocumentInfo in revisedDocumentInfoList)
                     {
                         var delta = WmlComparer.CompareInternal(originalWithUnids, revisedDocumentInfo.RevisedDocument, settings, false);
@@ -262,9 +267,9 @@ namespace OpenXmlPowerTools
                                             throw new OpenXmlPowerToolsException("Internal error");
 
                                         // todo if this is too slow, then need to make a dictionary
-                                        var elementToInsertAfter = consolidatedMainDocPartXDoc
-                                            .Descendants()
-                                            .FirstOrDefault(d => (string)d.Attribute(PtOpenXml.PrevUnid) == prevUnid);
+                                        XElement elementToInsertAfter = null;
+                                        if (consolidatedByPrevUnid.ContainsKey(prevUnid))
+                                            elementToInsertAfter = consolidatedByPrevUnid[prevUnid];
 
                                         if (elementToInsertAfter != null)
                                         {
@@ -486,7 +491,16 @@ namespace OpenXmlPowerTools
                             new XAttribute(W.color, "auto"),
                             new XAttribute(W.fill, colorString))),
                         captionParagraph,
-                        groupedCi.Select(ci => ci.RevisionElement))));
+                        groupedCi.Select(ci =>
+                            {
+                                XElement paraAfter = null;
+                                if (ci.RevisionElement.Name == W.tbl)
+                                    paraAfter = emptyParagraph;
+                                return new [] {
+                                    ci.RevisionElement,
+                                    paraAfter,
+                                };
+                            }))));
 
             var content = new[] {
                                     idx == 0 ? emptyParagraph : null,
@@ -535,281 +549,6 @@ namespace OpenXmlPowerTools
             }
             return node;
         }
-#if false
-        /*****************************************************************************************************************/
-        // Consolidate does not process deltas in endnotes and footnotes.  In a future version, this method should go into
-        // each footnote and endnote, and process deltas, inserting tables for each delta.  This is not part of the original
-        // spec, and there is no time to implement this, so at this point, Consolidate does not implement this.
-        /*****************************************************************************************************************/
-        public static WmlDocument Consolidate(WmlDocument original,
-            List<WmlRevisedDocumentInfo>
-            revisedDocumentInfoList,
-            WmlComparerSettings settings)
-        {
-            // call CompareInternal, get the after, and prev version of the document
-            // start with the prev version of the document (copy in memory)
-            // in the 'after' document, for each paragraph or table
-            //   if there are revisions for a paragraph or table
-            //   get the 'PrevUnid' for the paragraph or table
-            //   find the paragraph with the same PrevUnid in the 'before' version
-            //   create a single cell table, and insert the paragraph with revisions
-            //   if there are deleted related content, move to the new document, adjust the relationship IDs in the markup that contains revisions
-
-            // repeat for all derivations
-            // fix up ids in the new document
-
-            // we have to do this first.  Processing MC markup will remove the Unids, and we want the same unids set for the previous
-            // document when comparing all documents.
-            var originalWithUnids = PreProcessMarkup(original);
-            WmlDocument consolidated = new WmlDocument(originalWithUnids);
-
-            using (MemoryStream consolidatedMs = new MemoryStream())
-            {
-                consolidatedMs.Write(consolidated.DocumentByteArray, 0, consolidated.DocumentByteArray.Length);
-                using (WordprocessingDocument consolidatedWDoc = WordprocessingDocument.Open(consolidatedMs, true))
-                {
-                    foreach (var revisedDocumentInfo in revisedDocumentInfoList)
-                    {
-                        var delta = WmlComparer.CompareInternal(originalWithUnids, revisedDocumentInfo.RevisedDocument, settings, false);
-
-                        var colorRgb = revisedDocumentInfo.Color.ToArgb();
-                        var colorString = colorRgb.ToString("X");
-                        if (colorString.Length == 8)
-                            colorString = colorString.Substring(2);
-
-                        using (MemoryStream msOriginalWithUnids = new MemoryStream())
-                        using (MemoryStream msDelta = new MemoryStream())
-                        {
-                            msOriginalWithUnids.Write(originalWithUnids.DocumentByteArray, 0, originalWithUnids.DocumentByteArray.Length);
-                            msDelta.Write(delta.DocumentByteArray, 0, delta.DocumentByteArray.Length);
-                            using (WordprocessingDocument wDocOriginalWithUnids = WordprocessingDocument.Open(msOriginalWithUnids, true))
-                            using (WordprocessingDocument wDocDelta = WordprocessingDocument.Open(msDelta, true))
-                            {
-                                var modMainDocPart = wDocDelta.MainDocumentPart;
-                                var modMainDocPartXDoc = modMainDocPart.GetXDocument();
-                                var blockLevelContentToMove = modMainDocPartXDoc
-                                    .Root
-                                    .DescendantsTrimmed(d => d.Name == W.txbxContent || d.Name == W.tr)
-                                    .Where(d => d.Name == W.p || d.Name == W.tbl)
-                                    .Where(d => d.Descendants().Any(z => z.Name == W.ins || z.Name == W.del))
-                                    .ToList();
-
-                                var consolidatedMainDocPart = consolidatedWDoc.MainDocumentPart;
-                                var consolidatedMainDocPartXDoc = consolidatedMainDocPart.GetXDocument();
-
-                                // save away last sectPr
-                                XElement savedSectPr = consolidatedMainDocPartXDoc
-                                    .Root
-                                    .Element(W.body)
-                                    .Elements(W.sectPr)
-                                    .LastOrDefault();
-                                consolidatedMainDocPartXDoc
-                                    .Root
-                                    .Element(W.body)
-                                    .Elements(W.sectPr)
-                                    .Remove();
-
-                                foreach (var revision in blockLevelContentToMove)
-                                {
-                                    var prevUnid = (string)revision.Attribute(PtOpenXml.PrevUnid);
-                                    if (prevUnid == null)
-                                        throw new OpenXmlPowerToolsException("Internal error");
-
-                                    var elementToInsertAfter = consolidatedMainDocPartXDoc
-                                        .Descendants()
-                                        .FirstOrDefault(d => (string)d.Attribute(PtOpenXml.PrevUnid) == prevUnid);
-
-                                    var insertAtBeginning = false;
-                                    if (elementToInsertAfter == null)
-                                    {
-                                        // find an element to insert after
-                                        var elementBeforeRevision = revision
-                                            .ElementsBeforeSelf()
-                                            .Reverse()
-                                            .FirstOrDefault(e =>
-                                                e.Attribute(PtOpenXml.PrevUnid) != null &&
-                                                e.Descendants().Any(z => z.Name == W.ins || z.Name == W.del));
-                                        if (elementBeforeRevision == null)
-                                        {
-                                            insertAtBeginning = true;
-                                        }
-                                        else
-                                        {
-                                            var previousPrevUnid = (string)elementBeforeRevision.Attribute(PtOpenXml.PrevUnid);
-                                            if (previousPrevUnid == null)
-                                                throw new OpenXmlPowerToolsException("Internal error");
-                                            elementToInsertAfter = consolidatedMainDocPartXDoc
-                                                .Descendants()
-                                                .FirstOrDefault(d => (string)d.Attribute(PtOpenXml.PrevUnid) == previousPrevUnid);
-                                        }
-                                    }
-
-                                    // clone revision, removing footnote and endnote references
-                                    var cleanedUpRevision = (XElement)CleanUpRevisionTransform(revision);
-                                    var captionParagraph = new XElement(W.p,
-                                        new XElement(W.pPr,
-                                            new XElement(W.jc, new XAttribute(W.val, "both")),
-                                            new XElement(W.rPr,
-                                                new XElement(W.b),
-                                                new XElement(W.bCs))),
-                                        new XElement(W.r,
-                                            new XElement(W.rPr,
-                                                new XElement(W.b),
-                                                new XElement(W.bCs)),
-                                            new XElement(W.t, revisedDocumentInfo.RevisorHeading)));
-
-                                    var emptyParagraph = new XElement(W.p,
-                                        new XElement(W.pPr,
-                                            new XElement(W.spacing,
-                                                new XAttribute(W.after, "0"),
-                                                new XAttribute(W.line, "240"),
-                                                new XAttribute(W.lineRule, "auto"))));
-
-                                    var table = new XElement(W.tbl,
-                                        new XElement(W.tblPr,
-                                            new XElement(W.tblStyle, new XAttribute(W.val, "TableGridForRevisions")),
-                                            new XElement(W.tblW,
-                                                new XAttribute(W._w, "0"),
-                                                new XAttribute(W.type, "auto")),
-                                            new XElement(W.shd,
-                                                new XAttribute(W.val, "clear"),
-                                                new XAttribute(W.color, "auto"),
-                                                new XAttribute(W.fill, colorString)),
-                                            new XElement(W.tblLook,
-                                                new XAttribute(W.firstRow, "0"),
-                                                new XAttribute(W.lastRow, "0"),
-                                                new XAttribute(W.firstColumn, "0"),
-                                                new XAttribute(W.lastColumn, "0"),
-                                                new XAttribute(W.noHBand, "0"),
-                                                new XAttribute(W.noVBand, "0"))),
-                                        new XElement(W.tblGrid,
-                                            new XElement(W.gridCol, new XAttribute(W._w, "9576"))),
-                                        new XElement(W.tr,
-                                            new XElement(W.tc,
-                                                new XElement(W.tcPr,
-                                                new XElement(W.shd,
-                                                    new XAttribute(W.val, "clear"),
-                                                    new XAttribute(W.color, "auto"),
-                                                    new XAttribute(W.fill, colorString))),
-                                                captionParagraph,
-                                                cleanedUpRevision)));
-
-                                    if (insertAtBeginning)
-                                    {
-                                        var insertEmptyParagraphAfter = true;
-                                        var firstParagraph = consolidatedMainDocPartXDoc
-                                            .Root
-                                            .Element(W.body)
-                                            .Element(W.p);
-                                        var childElements = firstParagraph.Elements().Where(c => c.Name != W.pPr);
-                                        if (childElements.Count() == 0)
-                                            insertEmptyParagraphAfter = false;
-
-                                        Package packageOfDeletedContent = wDocDelta.MainDocumentPart.OpenXmlPackage.Package;
-                                        Package packageOfNewContent = consolidatedWDoc.MainDocumentPart.OpenXmlPackage.Package;
-                                        PackagePart partInDeletedDocument = packageOfDeletedContent.GetPart(wDocDelta.MainDocumentPart.Uri);
-                                        PackagePart partInNewDocument = packageOfNewContent.GetPart(consolidatedWDoc.MainDocumentPart.Uri);
-                                        MoveRelatedPartsToDestination(partInDeletedDocument, partInNewDocument, table);
-
-                                        consolidatedMainDocPartXDoc
-                                            .Root
-                                            .Element(W.body)
-                                            .AddFirst(table, insertEmptyParagraphAfter ? emptyParagraph : null);
-                                    }
-                                    else
-                                    {
-                                        var insertEmptyParagraphAfter = true;
-                                        var followingElement = elementToInsertAfter
-                                            .ElementsAfterSelf()
-                                            .FirstOrDefault();
-                                        if (followingElement == null)
-                                        {
-                                            // insert at end
-                                            Package packageOfDeletedContent = wDocDelta.MainDocumentPart.OpenXmlPackage.Package;
-                                            Package packageOfNewContent = consolidatedWDoc.MainDocumentPart.OpenXmlPackage.Package;
-                                            PackagePart partInDeletedDocument = packageOfDeletedContent.GetPart(wDocDelta.MainDocumentPart.Uri);
-                                            PackagePart partInNewDocument = packageOfNewContent.GetPart(consolidatedWDoc.MainDocumentPart.Uri);
-                                            MoveRelatedPartsToDestination(partInDeletedDocument, partInNewDocument, table);
-
-                                            bool lastParaIsEmpty = false;
-                                            var lastPara = consolidatedMainDocPartXDoc
-                                                .Root
-                                                .Element(W.body)
-                                                .Elements(W.p)
-                                                .LastOrDefault();
-                                            var childElements = lastPara.Elements().Where(c => c.Name != W.pPr);
-                                            if (childElements.Count() == 0)
-                                                lastParaIsEmpty = true;
-
-                                            consolidatedMainDocPartXDoc
-                                                .Root
-                                                .Element(W.body)
-                                                .Add(lastParaIsEmpty ? null : emptyParagraph, table, emptyParagraph);
-                                        }
-                                        else
-                                        {
-                                            if (followingElement != null && followingElement.Name == W.p)
-                                            {
-                                                var childElements = followingElement.Elements().Where(c => c.Name != W.pPr);
-                                                if (childElements.Count() == 0)
-                                                    insertEmptyParagraphAfter = false;
-                                            }
-
-                                            Package packageOfDeletedContent = wDocDelta.MainDocumentPart.OpenXmlPackage.Package;
-                                            Package packageOfNewContent = consolidatedWDoc.MainDocumentPart.OpenXmlPackage.Package;
-                                            PackagePart partInDeletedDocument = packageOfDeletedContent.GetPart(wDocDelta.MainDocumentPart.Uri);
-                                            PackagePart partInNewDocument = packageOfNewContent.GetPart(consolidatedWDoc.MainDocumentPart.Uri);
-                                            MoveRelatedPartsToDestination(partInDeletedDocument, partInNewDocument, table);
-
-                                            elementToInsertAfter.AddAfterSelf(
-                                                emptyParagraph, table, insertEmptyParagraphAfter ? emptyParagraph : null);
-                                        }
-                                    }
-                                }
-
-                                AddTableGridStyleToStylesPart(consolidatedWDoc.MainDocumentPart.StyleDefinitionsPart);
-
-                                RectifyFootnoteEndnoteIds(
-                                    wDocOriginalWithUnids.MainDocumentPart,
-                                    wDocDelta.MainDocumentPart,
-                                    consolidatedWDoc.MainDocumentPart,
-                                    consolidatedMainDocPartXDoc,
-                                    settings);
-
-                                WmlComparer.IgnorePt14Namespace(consolidatedMainDocPartXDoc.Root);
-
-                                consolidatedWDoc.MainDocumentPart.PutXDocument();
-                            }
-                        }
-                    }
-                    var mdpXDoc = consolidatedWDoc.MainDocumentPart.GetXDocument();
-                    FixUpRevisionIds(consolidatedWDoc, mdpXDoc);
-                    FixUpDocPrIds(consolidatedWDoc);
-                    FixUpShapeIds(consolidatedWDoc);
-                    FixUpShapeTypeIds(consolidatedWDoc);
-                    consolidatedWDoc.MainDocumentPart.PutXDocument();
-                }
-                var producedDocument = new WmlDocument("dummy.docx", consolidatedMs.ToArray());
-                return producedDocument;
-            }
-        }
-
-        private static object CleanUpRevisionTransform(XNode node)
-        {
-            var element = node as XElement;
-            if (element != null)
-            {
-                if (element.Name == W.r &&
-                    (element.Element(W.footnoteReference) != null || element.Element(W.endnoteReference) != null))
-                    return null;
-
-                return new XElement(element.Name,
-                    element.Attributes().Where(a => a.Name.NamespaceName != PtOpenXml.pt),
-                    element.Nodes().Select(n => CleanUpRevisionTransform(n)));
-            }
-            return node;
-        }
-#endif
 
         private static void AddTableGridStyleToStylesPart(StyleDefinitionsPart styleDefinitionsPart)
         {
