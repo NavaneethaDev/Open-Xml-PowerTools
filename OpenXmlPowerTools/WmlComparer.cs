@@ -178,6 +178,7 @@ namespace OpenXmlPowerTools
             public Color Color;
             public XElement RevisionElement;
             public bool InsertBefore = false;
+            public string RevisionHash;
         }
 
         /*****************************************************************************************************************/
@@ -186,8 +187,7 @@ namespace OpenXmlPowerTools
         // spec, and there is no time to implement this, so at this point, Consolidate does not implement this.
         /*****************************************************************************************************************/
         public static WmlDocument Consolidate(WmlDocument original,
-            List<WmlRevisedDocumentInfo>
-            revisedDocumentInfoList,
+            List<WmlRevisedDocumentInfo> revisedDocumentInfoList,
             WmlComparerSettings settings)
         {
             // pre-process the original, so that it already has unids for all elements
@@ -205,6 +205,8 @@ namespace OpenXmlPowerTools
 
             var originalWithUnids = PreProcessMarkup(original);
             WmlDocument consolidated = new WmlDocument(originalWithUnids);
+
+            var revisedDocumentInfoListCount = revisedDocumentInfoList.Count();
 
             using (MemoryStream consolidatedMs = new MemoryStream())
             {
@@ -266,7 +268,6 @@ namespace OpenXmlPowerTools
                                         if (prevUnid == null)
                                             throw new OpenXmlPowerToolsException("Internal error");
 
-                                        // todo if this is too slow, then need to make a dictionary
                                         XElement elementToInsertAfter = null;
                                         if (consolidatedByPrevUnid.ContainsKey(prevUnid))
                                             elementToInsertAfter = consolidatedByPrevUnid[prevUnid];
@@ -340,6 +341,23 @@ namespace OpenXmlPowerTools
                     foreach (var ele in elementsToProcess)
                     {
                         var lci = ele.Annotation<List<ConsolidationInfo>>();
+
+                        // if all revisions from all revisors are exactly the same, then instead of adding multiple tables after
+                        // that contains the revisions, then simply replace the paragraph with the one with the revisions.
+                        // RC004 documents contain the test data to exercise this.
+
+                        var lciCount = lci.Count();
+                        if (lci.Count() > 1 && lciCount == revisedDocumentInfoListCount)
+                        {
+                            var uniqueRevisionCount = lci
+                                .GroupAdjacent(ci => ci.InsertBefore.ToString() + ci.RevisionHash)
+                                .Count();
+                            if (uniqueRevisionCount == 1)
+                            {
+                                ele.ReplaceWith(lci.First().RevisionElement);
+                                continue;
+                            }
+                        }
                         var contentToAddBefore = lci
                             .Where(ci => ci.InsertBefore == true)
                             .GroupAdjacent(ci => ci.Revisor + ci.Color.ToString())
@@ -524,6 +542,13 @@ namespace OpenXmlPowerTools
             PackagePart partInDeletedDocument = packageOfDeletedContent.GetPart(wDocDelta.MainDocumentPart.Uri);
             PackagePart partInNewDocument = packageOfNewContent.GetPart(consolidatedWDoc.MainDocumentPart.Uri);
             consolidationInfo.RevisionElement = MoveRelatedPartsToDestination(partInDeletedDocument, partInNewDocument, cleanedUpRevision);
+
+            var clonedForHashing = (XElement)CloneBlockLevelContentForHashing(consolidatedWDoc.MainDocumentPart, consolidationInfo.RevisionElement);
+            clonedForHashing.Descendants().Where(d => d.Name == W.ins || d.Name == W.del).Attributes(W.id).Remove();
+            var shaString = clonedForHashing.ToString(SaveOptions.DisableFormatting)
+                .Replace(" xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"", "");
+            var sha1Hash = WmlComparerUtil.SHA1HashStringForUTF8String(shaString);
+            consolidationInfo.RevisionHash = sha1Hash;
 
             var annotationList = elementToInsertAfter.Annotation<List<ConsolidationInfo>>();
             if (annotationList == null)

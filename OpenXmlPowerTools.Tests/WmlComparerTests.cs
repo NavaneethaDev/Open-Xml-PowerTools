@@ -91,6 +91,19 @@ namespace OxPt
                 <Revisor>From Bob</Revisor>
               </RcInfo>
             </Root>")]
+        [InlineData("RC004-Before.docx",
+            @"<Root>
+              <RcInfo>
+                <DocName>RC004-After1.docx</DocName>
+                <Color>LightYellow</Color>
+                <Revisor>From Bob</Revisor>
+              </RcInfo>
+              <RcInfo>
+                <DocName>RC004-After2.docx</DocName>
+                <Color>LightPink</Color>
+                <Revisor>From Fred</Revisor>
+              </RcInfo>
+            </Root>")]
 
         public void WC001_Consolidate(string originalName, string revisedDocumentsXml)
         {
