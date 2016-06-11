@@ -5537,7 +5537,6 @@ namespace OpenXmlPowerTools
         public static XName PrevUnid = pt + "PrevUnid";
         public static XName SHA1Hash = pt + "SHA1Hash";
         public static XName Status = pt + "Status";
-        public static XName CorrelationStatus = pt + "CorrelationStatus";
 
         public static XName trPr = pt + "trPr";
         public static XName tcPr = pt + "tcPr";

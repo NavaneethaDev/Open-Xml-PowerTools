@@ -256,7 +256,6 @@ namespace OxPt
         [InlineData("WC035-Endnote-After.docx", "WC035-Endnote-Before.docx")]
         [InlineData("WC036-Endnote-With-Table-Before.docx", "WC036-Endnote-With-Table-After.docx")]
         [InlineData("WC036-Endnote-With-Table-After.docx", "WC036-Endnote-With-Table-Before.docx")]
-        [InlineData("WC037-Textbox-Before.docx", "WC037-Textbox-After1.docx")]
         [InlineData("WC038-Document-With-BR-Before.docx", "WC038-Document-With-BR-After.docx")]
         [InlineData("RC001-Before.docx", "RC001-After1.docx")]
         [InlineData("RC002-Image.docx", "RC002-Image-After1.docx")]
@@ -445,7 +444,6 @@ namespace OxPt
         [InlineData("WC035-Endnote-After.docx", "WC035-Endnote-Before.docx", 2)]
         [InlineData("WC036-Endnote-With-Table-Before.docx", "WC036-Endnote-With-Table-After.docx", 6)]
         [InlineData("WC036-Endnote-With-Table-After.docx", "WC036-Endnote-With-Table-Before.docx", 6)]
-        [InlineData("WC037-Textbox-Before.docx", "WC037-Textbox-After1.docx", 2)]
         [InlineData("WC038-Document-With-BR-Before.docx", "WC038-Document-With-BR-After.docx", 2)]
         [InlineData("RC001-Before.docx", "RC001-After1.docx", 2)]
         [InlineData("RC002-Image.docx", "RC002-Image-After1.docx", 1)]
@@ -546,6 +544,30 @@ namespace OxPt
             WmlDocument revisionWml = new WmlDocument(docxWithRevisionsFi.FullName);
             var revisions = WmlComparer.GetRevisions(revisionWml);
             Assert.Equal(revisionCount, revisions.Count());
+        }
+
+        [Theory]
+        [InlineData("WC037-Textbox-Before.docx", "WC037-Textbox-After1.docx", 2)]
+
+        public void WC003_Throws(string name1, string name2, int revisionCount)
+        {
+            FileInfo source1Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name1));
+            FileInfo source2Docx = new FileInfo(Path.Combine(TestUtil.SourceDir.FullName, name2));
+
+            var source1CopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, source1Docx.Name));
+            var source2CopiedToDestDocx = new FileInfo(Path.Combine(TestUtil.TempDir.FullName, source2Docx.Name));
+            if (!source1CopiedToDestDocx.Exists)
+                File.Copy(source1Docx.FullName, source1CopiedToDestDocx.FullName);
+            if (!source2CopiedToDestDocx.Exists)
+                File.Copy(source2Docx.FullName, source2CopiedToDestDocx.FullName);
+
+            WmlDocument source1Wml = new WmlDocument(source1CopiedToDestDocx.FullName);
+            WmlDocument source2Wml = new WmlDocument(source2CopiedToDestDocx.FullName);
+            WmlComparerSettings settings = new WmlComparerSettings();
+            Assert.Throws<OpenXmlPowerToolsException>(() =>
+                {
+                    WmlDocument comparedWml = WmlComparer.Compare(source1Wml, source2Wml, settings);
+                });
         }
 
         [Theory]

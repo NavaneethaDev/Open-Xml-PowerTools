@@ -535,6 +535,7 @@ namespace OpenXmlPowerTools
             XElement elementToInsertAfter,
             ConsolidationInfo consolidationInfo)
         {
+            // the following removes footnotes / endnotes; we do not put them in the revision tables that follow revised paragraphs.
             XElement cleanedUpRevision = (XElement)CleanUpRevisionTransform(consolidationInfo.RevisionElement);
 
             Package packageOfDeletedContent = wDocDelta.MainDocumentPart.OpenXmlPackage.Package;
@@ -543,7 +544,7 @@ namespace OpenXmlPowerTools
             PackagePart partInNewDocument = packageOfNewContent.GetPart(consolidatedWDoc.MainDocumentPart.Uri);
             consolidationInfo.RevisionElement = MoveRelatedPartsToDestination(partInDeletedDocument, partInNewDocument, cleanedUpRevision);
 
-            var clonedForHashing = (XElement)CloneBlockLevelContentForHashing(consolidatedWDoc.MainDocumentPart, consolidationInfo.RevisionElement);
+            var clonedForHashing = (XElement)CloneBlockLevelContentForHashing(consolidatedWDoc.MainDocumentPart, consolidationInfo.RevisionElement, false);
             clonedForHashing.Descendants().Where(d => d.Name == W.ins || d.Name == W.del).Attributes(W.id).Remove();
             var shaString = clonedForHashing.ToString(SaveOptions.DisableFormatting)
                 .Replace(" xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"", "");
@@ -2020,6 +2021,10 @@ namespace OpenXmlPowerTools
                     throw new OpenXmlPowerToolsException("Unsupported document, contains w:subDoc");
                 if (xDoc.Descendants(W.contentPart).Any())
                     throw new OpenXmlPowerToolsException("Unsupported document, contains w:contentPart");
+                if (xDoc.Descendants(W.txbxContent).Any())
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains text boxes");
+                if (xDoc.Descendants(W.tbl).Any(d => d.Ancestors(W.tbl).Any()))
+                    throw new OpenXmlPowerToolsException("Unsupported document, contains nested tables");
             }
         }
 
@@ -2072,7 +2077,7 @@ namespace OpenXmlPowerTools
 
             foreach (var blockLevelContent in blockLevelContentToAnnotate)
             {
-                var cloneBlockLevelContentForHashing = (XElement)CloneBlockLevelContentForHashing(part, blockLevelContent);
+                var cloneBlockLevelContentForHashing = (XElement)CloneBlockLevelContentForHashing(part, blockLevelContent, true);
                 var shaString = cloneBlockLevelContentForHashing.ToString(SaveOptions.DisableFormatting)
                     .Replace(" xmlns=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"", "");
                 var sha1Hash = WmlComparerUtil.SHA1HashStringForUTF8String(shaString);
@@ -2085,7 +2090,7 @@ namespace OpenXmlPowerTools
             WP14.editId,
         };
 
-        private static object CloneBlockLevelContentForHashing(OpenXmlPart mainDocumentPart, XNode node)
+        private static object CloneBlockLevelContentForHashing(OpenXmlPart mainDocumentPart, XNode node, bool includeRelatedParts)
         {
             var element = node as XElement;
             if (element != null)
@@ -2108,7 +2113,7 @@ namespace OpenXmlPowerTools
                                 a.Name != W.rsidSect &&
                                 a.Name != W.rsidTr &&
                                 a.Name.Namespace != PtOpenXml.pt),
-                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
 
                     var groupedRuns = clonedPara
                         .Elements()
@@ -2137,76 +2142,78 @@ namespace OpenXmlPowerTools
                     var clonedRuns = element
                         .Elements()
                         .Where(e => e.Name != W.rPr)
-                        .Select(rc => new XElement(W.r, CloneBlockLevelContentForHashing(mainDocumentPart, rc)));
+                        .Select(rc => new XElement(W.r, CloneBlockLevelContentForHashing(mainDocumentPart, rc, includeRelatedParts)));
                     return clonedRuns;
                 }
 
                 if (element.Name == W.tbl)
                 {
                     var clonedTable = new XElement(W.tbl,
-                        element.Elements(W.tr).Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Elements(W.tr).Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
                     return clonedTable;
                 }
 
                 if (element.Name == W.tr)
                 {
                     var clonedRow = new XElement(W.tr,
-                        element.Elements(W.tc).Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Elements(W.tc).Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
                     return clonedRow;
                 }
 
                 if (element.Name == W.tc)
                 {
                     var clonedCell = new XElement(W.tc,
-                        element.Elements().Where(z => z.Name != W.tcPr).Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Elements().Where(z => z.Name != W.tcPr).Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
                     return clonedCell;
                 }
 
                 if (element.Name == W.txbxContent)
                 {
                     var clonedTextbox = new XElement(W.txbxContent,
-                        element.Elements().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Elements().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
                     return clonedTextbox;
                 }
 
-
-                if (ComparisonUnitWord.s_ElementsWithRelationshipIds.Contains(element.Name))
+                if (includeRelatedParts)
                 {
-                    var newElement = new XElement(element.Name,
-                        element.Attributes()
-                            .Where(a => a.Name.Namespace != PtOpenXml.pt)
-                            .Where(a => !AttributesToTrimWhenCloning.Contains(a.Name))
-                            .Select(a =>
-                            {
-                                if (!ComparisonUnitWord.s_RelationshipAttributeNames.Contains(a.Name))
-                                    return a;
-                                var rId = (string)a;
-                                OpenXmlPart oxp = mainDocumentPart.GetPartById(rId);
-                                if (oxp == null)
-                                    throw new FileFormatException("Invalid WordprocessingML Document");
-
-                                var anno = oxp.Annotation<PartSHA1HashAnnotation>();
-                                if (anno != null)
-                                    return new XAttribute(a.Name, anno.Hash);
-
-                                if (!oxp.ContentType.EndsWith("xml"))
+                    if (ComparisonUnitWord.s_ElementsWithRelationshipIds.Contains(element.Name))
+                    {
+                        var newElement = new XElement(element.Name,
+                            element.Attributes()
+                                .Where(a => a.Name.Namespace != PtOpenXml.pt)
+                                .Where(a => !AttributesToTrimWhenCloning.Contains(a.Name))
+                                .Select(a =>
                                 {
-                                    using (var str = oxp.GetStream())
+                                    if (!ComparisonUnitWord.s_RelationshipAttributeNames.Contains(a.Name))
+                                        return a;
+                                    var rId = (string)a;
+                                    OpenXmlPart oxp = mainDocumentPart.GetPartById(rId);
+                                    if (oxp == null)
+                                        throw new FileFormatException("Invalid WordprocessingML Document");
+
+                                    var anno = oxp.Annotation<PartSHA1HashAnnotation>();
+                                    if (anno != null)
+                                        return new XAttribute(a.Name, anno.Hash);
+
+                                    if (!oxp.ContentType.EndsWith("xml"))
                                     {
-                                        byte[] ba;
-                                        using (BinaryReader br = new BinaryReader(str))
+                                        using (var str = oxp.GetStream())
                                         {
-                                            ba = br.ReadBytes((int)str.Length);
+                                            byte[] ba;
+                                            using (BinaryReader br = new BinaryReader(str))
+                                            {
+                                                ba = br.ReadBytes((int)str.Length);
+                                            }
+                                            var sha1 = WmlComparerUtil.SHA1HashStringForByteArray(ba);
+                                            oxp.AddAnnotation(new PartSHA1HashAnnotation(sha1));
+                                            return new XAttribute(a.Name, sha1);
                                         }
-                                        var sha1 = WmlComparerUtil.SHA1HashStringForByteArray(ba);
-                                        oxp.AddAnnotation(new PartSHA1HashAnnotation(sha1));
-                                        return new XAttribute(a.Name, sha1);
                                     }
-                                }
-                                return null;
-                            }),
-                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
-                    return newElement;
+                                    return null;
+                                }),
+                            element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
+                        return newElement;
+                    }
                 }
 
                 if (element.Name == VML.shape)
@@ -2215,7 +2222,7 @@ namespace OpenXmlPowerTools
                         element.Attributes()
                             .Where(a => a.Name.Namespace != PtOpenXml.pt)
                             .Where(a => a.Name != "style"),
-                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
                 }
 
                 if (element.Name == O.OLEObject)
@@ -2224,14 +2231,14 @@ namespace OpenXmlPowerTools
                         element.Attributes()
                             .Where(a => a.Name.Namespace != PtOpenXml.pt)
                             .Where(a => a.Name != "ObjectID" && a.Name != R.id),
-                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                        element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
                 }
 
                 return new XElement(element.Name,
                     element.Attributes()
                         .Where(a => a.Name.Namespace != PtOpenXml.pt)
                         .Where(a => !AttributesToTrimWhenCloning.Contains(a.Name)),
-                    element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n)));
+                    element.Nodes().Select(n => CloneBlockLevelContentForHashing(mainDocumentPart, n, includeRelatedParts)));
             }
             return node;
         }
@@ -2569,7 +2576,10 @@ namespace OpenXmlPowerTools
                             {
                                 var key = "";
                                 if (level < (gc.AncestorElements.Length - 1))
-                                    key = (string)gc.AncestorElements[level + 1].Attribute(PtOpenXml.Unid);
+                                {
+                                    var anc = gc.AncestorElements[level + 1];
+                                    key = (string)anc.Attribute(PtOpenXml.Unid);
+                                }
                                 key += "|" + gc.CorrelationStatus.ToString();
                                 return key;
                             })
