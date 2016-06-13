@@ -28,6 +28,8 @@ using System.Drawing;
 using System.Security.Cryptography;
 using OpenXmlPowerTools;
 
+// It is possible to optimize DescendantContentAtoms
+
 namespace OpenXmlPowerTools
 {
     public class WmlComparerSettings
@@ -2010,6 +2012,7 @@ namespace OpenXmlPowerTools
         // - altChunk
         // - subDoc
         // - contentPart
+        // - text boxes and nested tables (for now)
         private static void TestForInvalidContent(WordprocessingDocument wDoc)
         {
             foreach (var part in wDoc.ContentParts())
@@ -2603,23 +2606,6 @@ namespace OpenXmlPowerTools
                                 else
                                 {
                                     return CoalesceRecurse(part, gc, level + 1, settings);
-                                    //return gc.Select(gcc =>
-                                    //{
-                                    //    var temp = new XElement("temp", CoalesceRecurse(part, new[] { gcc }, level + 1, settings));
-                                    //    if (gcc.CorrelationStatus == CorrelationStatus.Deleted)
-                                    //    {
-                                    //        foreach (var child in temp.Elements())
-                                    //            if (child.Attribute(PtOpenXml.Status) == null)
-                                    //                child.Add(new XAttribute(PtOpenXml.Status, "Deleted"));
-                                    //    }
-                                    //    else if (gcc.CorrelationStatus == CorrelationStatus.Inserted)
-                                    //    {
-                                    //        foreach (var child in temp.Elements())
-                                    //            if (child.Attribute(PtOpenXml.Status) == null)
-                                    //                child.Add(new XAttribute(PtOpenXml.Status, "Inserted"));
-                                    //    }
-                                    //    return temp.Elements();
-                                    //});
                                 }
                             })
                             .ToList();
@@ -2648,23 +2634,6 @@ namespace OpenXmlPowerTools
                                 else
                                 {
                                     return CoalesceRecurse(part, gc, level + 1, settings);
-                                    //return gc.Select(gcc =>
-                                    //{
-                                    //    var temp = new XElement("temp", CoalesceRecurse(part, new[] { gcc }, level + 1, settings));
-                                    //    if (gcc.CorrelationStatus == CorrelationStatus.Deleted)
-                                    //    {
-                                    //        foreach (var child in temp.Elements())
-                                    //            if (child.Attribute(PtOpenXml.Status) == null)
-                                    //                child.Add(new XAttribute(PtOpenXml.Status, "Deleted"));
-                                    //    }
-                                    //    else if (gcc.CorrelationStatus == CorrelationStatus.Inserted)
-                                    //    {
-                                    //        foreach (var child in temp.Elements())
-                                    //            if (child.Attribute(PtOpenXml.Status) == null)
-                                    //                child.Add(new XAttribute(PtOpenXml.Status, "Inserted"));
-                                    //    }
-                                    //    return temp.Elements();
-                                    //});
                                 }
                             })
                             .ToList();
@@ -2799,7 +2768,6 @@ namespace OpenXmlPowerTools
                         return newChildElements;
                     }
 
-                    //if (ancestorBeingConstructed.Name == W.endnoteReference || ancestorBeingConstructed.Name == W.footnoteReference)
                     if (AllowableRunChildren.Contains(ancestorBeingConstructed.Name))
                     {
                         var newChildElements = groupedChildren
@@ -4007,23 +3975,6 @@ namespace OpenXmlPowerTools
             W.continuationSeparator,
         };
 
-        //private static XName[] ElementsToHaveUnid = new XName[]
-        //{
-        //    W.p,
-        //    W.r,
-        //    W.tbl,
-        //    W.tr,
-        //    W.tc,
-        //    W.fldSimple,
-        //    W.hyperlink,
-        //    W.sdt,
-        //    W.smartTag,
-        //    W.txbxContent,
-        //    W.pict,
-        //    VML.shape,
-        //    VML.textbox,
-        //};
-
         private static XName[] ElementsToHaveSha1Hash = new XName[]
         {
             W.p,
@@ -4858,9 +4809,4 @@ namespace OpenXmlPowerTools
         }
     }
 }
-
-// Test
-// - ptab is not adequately tested.
-
-// can optimize Descendants
 
